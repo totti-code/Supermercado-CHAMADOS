@@ -1,0 +1,1476 @@
+﻿const state = {
+  session: null,
+  profile: null,
+  currentView: 'dashboard',
+  menu: [],
+  lookups: {
+    stores: [],
+    checkouts: [],
+    types: [],
+    users: []
+  },
+  tickets: [],
+  charts: {},
+  adminUi: {
+    stores: { search: '', status: '', sort: 'name_asc', editingId: null },
+    types: { search: '', status: '', sort: 'name_asc', editingId: null }
+  }
+};
+
+const MENU_ADMIN = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'tickets', label: 'Chamados' },
+  { id: 'stores', label: 'Lojas' },
+  { id: 'checkouts', label: 'Equipamentos/Setor' },
+  { id: 'types', label: 'Tipos de chamado' },
+  { id: 'users', label: 'Usuários' },
+  { id: 'reports', label: 'Relatórios' },
+  { id: 'settings', label: 'Configurações' }
+];
+
+const MENU_FUNC = [
+  { id: 'dashboard', label: 'Meu painel' },
+  { id: 'tickets', label: 'Meus chamados' },
+  { id: 'settings', label: 'Configurações' }
+];
+
+const el = {
+  authView: document.getElementById('auth-view'),
+  appView: document.getElementById('app-view'),
+  loginForm: document.getElementById('login-form'),
+  registerForm: document.getElementById('register-form'),
+  userInfo: document.getElementById('user-info'),
+  viewTitle: document.getElementById('view-title'),
+  menuNav: document.getElementById('menu-nav'),
+  content: document.getElementById('content'),
+  btnLogout: document.getElementById('btn-logout'),
+  btnOpenTicket: document.getElementById('btn-open-ticket'),
+  ticketModal: document.getElementById('ticket-modal'),
+  detailsModal: document.getElementById('details-modal'),
+  detailsContent: document.getElementById('details-content'),
+  ticketForm: document.getElementById('ticket-form'),
+  globalSearch: document.getElementById('global-search'),
+  btnAdminQuick: document.getElementById('btn-admin-quick'),
+  btnThemeToggle: document.getElementById('btn-theme-toggle'),
+  btnNavToggle: document.getElementById('btn-nav-toggle'),
+  btnNavClose: document.getElementById('btn-nav-close'),
+  navOverlay: document.getElementById('nav-overlay')
+};
+
+function showToast(msg, type = 'ok') {
+  const container = document.getElementById('toast-container');
+  const node = document.createElement('div');
+  node.className = `toast ${type === 'error' ? 'error' : ''}`;
+  node.textContent = msg;
+  container.appendChild(node);
+  setTimeout(() => node.remove(), 3500);
+}
+
+function fmtDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('pt-BR');
+}
+
+function badgeStatus(s) {
+  const map = {
+    aberto: 'Aberto',
+    em_andamento: 'Em andamento',
+    aguardando_retorno: 'Aguardando retorno',
+    resolvido: 'Resolvido',
+    fechado: 'Fechado',
+    cancelado: 'Cancelado'
+  };
+  return `<span class="badge b-status-${s}">${map[s] || s}</span>`;
+}
+
+function badgePriority(p) {
+  const map = { baixa: 'Baixa', media: 'Média', alta: 'Alta', critica: 'Crítica' };
+  return `<span class="badge b-prioridade-${p}">${map[p] || p}</span>`;
+}
+
+function badgeActive(active) {
+  return `<span class="badge ${active ? 'b-ativo' : 'b-inativo'}">${active ? 'Ativo' : 'Inativo'}</span>`;
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function compareNameAsc(a, b) {
+  return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
+}
+
+function sortRows(rows, sortMode) {
+  const sorted = [...rows];
+  if (sortMode === 'name_desc') return sorted.sort((a, b) => compareNameAsc(b, a));
+  if (sortMode === 'recent') return sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (sortMode === 'oldest') return sorted.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return sorted.sort(compareNameAsc);
+}
+
+function filterAdminRows(rows, ui) {
+  let filtered = [...rows];
+  const search = normalizeText(ui.search);
+  if (search) filtered = filtered.filter(r => normalizeText(r.nome).includes(search));
+  if (ui.status === 'ativo') filtered = filtered.filter(r => r.ativo);
+  if (ui.status === 'inativo') filtered = filtered.filter(r => !r.ativo);
+  return sortRows(filtered, ui.sort);
+}
+
+function checkoutKey(nome, setor) {
+  return `${normalizeText(nome)}|${normalizeText(setor)}`;
+}
+
+function getCheckoutTemplates() {
+  const grouped = new Map();
+  state.lookups.checkouts.forEach(row => {
+    const key = checkoutKey(row.nome, row.setor);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        id: row.id,
+        nome: row.nome,
+        setor: row.setor || null,
+        activeRows: 0,
+        totalRows: 0
+      });
+    }
+    const item = grouped.get(key);
+    item.totalRows += 1;
+    if (row.ativo) item.activeRows += 1;
+  });
+
+  return [...grouped.values()]
+    .map(item => ({
+      ...item,
+      ativo: item.activeRows > 0
+    }))
+    .sort((a, b) => compareNameAsc(a, b));
+}
+
+async function syncGlobalCheckoutsAcrossStores() {
+  if (!isAdmin()) return;
+  if (!state.lookups.stores.length || !state.lookups.checkouts.length) return;
+
+  const templates = getCheckoutTemplates();
+  const inserts = [];
+
+  state.lookups.stores.forEach(store => {
+    templates.forEach(template => {
+      const exists = state.lookups.checkouts.some(c =>
+        c.loja_id === store.id &&
+        checkoutKey(c.nome, c.setor) === checkoutKey(template.nome, template.setor)
+      );
+      if (!exists) {
+        inserts.push({
+          loja_id: store.id,
+          nome: template.nome,
+          setor: template.setor || null,
+          ativo: template.ativo
+        });
+      }
+    });
+  });
+
+  if (!inserts.length) return;
+  const inserted = await safeQuery(sb.from('caixas').insert(inserts).select());
+  if (!inserted) return;
+  await loadLookups();
+}
+
+async function safeQuery(promise) {
+  const { data, error } = await promise;
+  if (error) {
+    showToast(error.message, 'error');
+    return null;
+  }
+  return data;
+}
+
+async function loadLookups() {
+  const [stores, checkouts, types, users] = await Promise.all([
+    safeQuery(sb.from('lojas').select('*').order('nome')),
+    safeQuery(sb.from('caixas').select('*').order('nome')),
+    safeQuery(sb.from('tipos_chamado').select('*').order('nome')),
+    safeQuery(sb.from('usuarios').select('*').order('nome'))
+  ]);
+
+  state.lookups.stores = stores || [];
+  state.lookups.checkouts = checkouts || [];
+  state.lookups.types = types || [];
+  state.lookups.users = users || [];
+
+  hydrateStoreSelects();
+}
+
+function hydrateStoreSelects() {
+  const storeOptions = ['<option value="">Selecione</option>']
+    .concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`))
+    .join('');
+
+  document.getElementById('ticket-store').innerHTML = storeOptions;
+  document.getElementById('register-store').innerHTML = `<option value="">Sem vínculo</option>${state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}`;
+
+  document.getElementById('ticket-type').innerHTML = state.lookups.types
+    .filter(t => t.ativo)
+    .map(t => `<option value="${t.id}">${t.nome}</option>`)
+    .join('');
+}
+
+async function ensureProfile(sessionUser) {
+  const row = await safeQuery(sb.from('usuarios').select('*').eq('id', sessionUser.id).maybeSingle());
+  if (row) {
+    state.profile = row;
+    return;
+  }
+
+  const payload = {
+    id: sessionUser.id,
+    nome: sessionUser.user_metadata?.nome || sessionUser.email.split('@')[0],
+    email: sessionUser.email,
+    perfil: sessionUser.user_metadata?.perfil || 'funcionario',
+    loja_id: sessionUser.user_metadata?.loja_id || null,
+    ativo: true
+  };
+
+  const inserted = await safeQuery(sb.from('usuarios').insert(payload).select().single());
+  state.profile = inserted;
+}
+
+function isAdmin() {
+  return state.profile?.perfil === 'admin';
+}
+
+function setNavOpen(open) {
+  document.body.classList.toggle('nav-open', !!open);
+}
+
+function mountMenu() {
+  state.menu = isAdmin() ? MENU_ADMIN : MENU_FUNC;
+  el.menuNav.innerHTML = state.menu
+    .map(item => `<button class="nav-btn ${item.id === state.currentView ? 'active' : ''}" data-view="${item.id}">${item.label}</button>`)
+    .join('');
+
+  el.menuNav.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.currentView = btn.dataset.view;
+      mountMenu();
+      renderView();
+      setNavOpen(false);
+    });
+  });
+}
+
+async function fetchTickets(filters = {}) {
+  const { checkout_name, ...dbFilters } = filters;
+  let query = sb.from('chamados').select(`
+    *,
+    loja:lojas(id,nome,codigo),
+    caixa:caixas(id,nome,setor),
+    tipo:tipos_chamado(id,nome),
+    usuario:usuarios(id,nome,email)
+  `).order('created_at', { ascending: false });
+
+  Object.entries(dbFilters).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== '') query = query.eq(k, v);
+  });
+
+  const data = await safeQuery(query);
+  let rows = data || [];
+  if (checkout_name) {
+    rows = rows.filter(t => normalizeText(t.caixa?.nome) === normalizeText(checkout_name));
+  }
+  state.tickets = rows;
+  return state.tickets;
+}
+
+function renderDashboard() {
+  const all = state.tickets;
+  const kpi = {
+    aberto: all.filter(x => x.status === 'aberto').length,
+    andamento: all.filter(x => x.status === 'em_andamento').length,
+    resolvido: all.filter(x => x.status === 'resolvido').length,
+    fechado: all.filter(x => x.status === 'fechado').length
+  };
+
+  const stores = state.lookups.stores
+    .filter(s => s.ativo)
+    .map(s => `<option value="${s.id}">${s.nome}</option>`)
+    .join('');
+  const types = state.lookups.types
+    .filter(t => t.ativo)
+    .map(t => `<option value="${t.id}">${t.nome}</option>`)
+    .join('');
+  const recent = all.slice(0, 8);
+
+  el.content.innerHTML = `
+    <article class="cards-grid dashboard-kpis">
+      <section class="kpi kpi-open"><span class="kpi-dot"></span><strong>${kpi.aberto}</strong><span>Abertos</span><small>Pendentes de atendimento</small></section>
+      <section class="kpi kpi-progress"><span class="kpi-dot"></span><strong>${kpi.andamento}</strong><span>Em andamento</span><small>Chamados em execução</small></section>
+      <section class="kpi kpi-done"><span class="kpi-dot"></span><strong>${kpi.resolvido}</strong><span>Resolvidos</span><small>Finalizados com sucesso</small></section>
+      <section class="kpi kpi-total"><span class="kpi-dot"></span><strong>${all.length}</strong><span>Total</span><small>Base geral de chamados</small></section>
+    </article>
+
+    <section class="dashboard-main">
+      <article class="card ticket-form-card">
+        <div class="card-title-row">
+          <h3>Abrir chamado</h3>
+          <button id="btn-ticket-examples" class="btn btn-ghost btn-sm" type="button">Gerar exemplos</button>
+        </div>
+        <form id="quick-ticket-form" class="form-grid">
+          <div class="grid-2">
+            <label>Título*
+              <input id="quick-ticket-title" required maxlength="120" placeholder="Ex: Impressora térmica não imprime" />
+            </label>
+            <label>Solicitante
+              <input value="${state.profile?.nome || '-'}" disabled />
+            </label>
+          </div>
+          <label>Descrição detalhada*
+            <textarea id="quick-ticket-description" rows="4" required placeholder="Descreva o problema, impacto e desde quando ocorre..."></textarea>
+          </label>
+          <div class="grid-2">
+            <label>Filial*
+              <select id="quick-ticket-store" required>${stores}</select>
+            </label>
+            <label>Equipamentos/Setor*
+              <select id="quick-ticket-checkout" required></select>
+            </label>
+          </div>
+          <div class="grid-3">
+            <label>Tipo de chamado*
+              <select id="quick-ticket-type" required>${types}</select>
+            </label>
+            <label>Prioridade*
+              <select id="quick-ticket-priority" required>
+                <option value="baixa">Baixa</option>
+                <option value="media" selected>Média</option>
+                <option value="alta">Alta</option>
+                <option value="critica">Crítica</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="quick-ticket-status" disabled>
+                <option value="aberto" selected>Aberto</option>
+              </select>
+            </label>
+          </div>
+          <footer class="admin-form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">Salvar chamado</button>
+            <button type="button" id="btn-open-ticket-modal" class="btn btn-ghost btn-sm">Modo completo</button>
+          </footer>
+        </form>
+      </article>
+
+      <aside class="recent-column">
+        <article class="card">
+          <h3>Chamados recentes</h3>
+          <div class="recent-list">
+            ${recent.length ? recent.map(r => `
+              <button class="recent-ticket" data-action="open" data-id="${r.id}">
+                <div class="recent-head">
+                  <strong>${r.titulo}</strong>
+                  <div class="recent-badges">
+                    ${badgeStatus(r.status)}
+                    ${badgePriority(r.prioridade)}
+                  </div>
+                </div>
+                <p>${r.loja?.nome || '-'} | ${r.caixa?.nome || '-'} | ${r.tipo?.nome || '-'}</p>
+                <small>${r.usuario?.nome || '-'} • ${fmtDate(r.created_at)}</small>
+              </button>
+            `).join('') : '<p>Nenhum chamado recente.</p>'}
+          </div>
+        </article>
+      </aside>
+    </section>
+  `;
+
+  const storeSelect = document.getElementById('quick-ticket-store');
+  const checkoutSelect = document.getElementById('quick-ticket-checkout');
+  const syncCheckouts = () => {
+    const storeId = Number(storeSelect.value);
+    const options = state.lookups.checkouts
+      .filter(c => c.ativo && c.loja_id === storeId)
+      .map(c => `<option value="${c.id}">${c.nome}${c.setor ? ` - ${c.setor}` : ''}</option>`)
+      .join('');
+    checkoutSelect.innerHTML = options || '<option value="">Sem equipamentos/setor ativos</option>';
+  };
+
+  if (!isAdmin() && state.profile?.loja_id) {
+    storeSelect.value = String(state.profile.loja_id);
+    storeSelect.setAttribute('disabled', 'disabled');
+  }
+  syncCheckouts();
+  storeSelect.addEventListener('change', syncCheckouts);
+
+  document.getElementById('btn-ticket-examples').addEventListener('click', () => {
+    document.getElementById('quick-ticket-title').value = 'PDV sem conexão com a rede';
+    document.getElementById('quick-ticket-description').value = 'O PDV 03 está sem acesso ao sistema desde 09:20. Reinício já realizado sem sucesso.';
+  });
+
+  document.getElementById('quick-ticket-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      loja_id: Number(storeSelect.value),
+      caixa_id: Number(checkoutSelect.value),
+      tipo_chamado_id: Number(document.getElementById('quick-ticket-type').value),
+      usuario_id: state.profile.id,
+      titulo: document.getElementById('quick-ticket-title').value.trim(),
+      descricao: document.getElementById('quick-ticket-description').value.trim(),
+      prioridade: document.getElementById('quick-ticket-priority').value,
+      anexo_url: null,
+      telefone_retorno: null,
+      responsavel_local: null,
+      status: 'aberto'
+    };
+    if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
+      return showToast('Preencha os campos obrigatórios', 'error');
+    }
+    const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
+    if (!inserted) return;
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
+    await reloadAll();
+    renderDashboard();
+  });
+
+  document.getElementById('btn-open-ticket-modal').addEventListener('click', () => {
+    el.btnOpenTicket.click();
+  });
+
+  bindTicketRowActions();
+}
+
+function buildChart(id, label, labels, values) {
+  if (state.charts[id]) state.charts[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  state.charts[id] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label,
+        data: values,
+        backgroundColor: ['#0f6abf', '#f8a300', '#7a4be0', '#1f9d59', '#475a78', '#d13a30']
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
+}
+
+function ticketTable(rows) {
+  return `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Nº</th><th>Loja</th><th>Equipamentos/Setor</th><th>Tipo</th><th>Título</th>
+          <th>Prioridade</th><th>Status</th><th>Abertura</th><th>Solicitante</th><th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.numero_chamado || r.id}</td>
+            <td>${r.loja?.nome || '-'}</td>
+            <td>${r.caixa?.nome || '-'}</td>
+            <td>${r.tipo?.nome || '-'}</td>
+            <td>${r.titulo}</td>
+            <td>${badgePriority(r.prioridade)}</td>
+            <td>${badgeStatus(r.status)}</td>
+            <td>${fmtDate(r.created_at)}</td>
+            <td>${r.usuario?.nome || '-'}</td>
+            <td>
+              <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderTicketView() {
+  const stores = ['<option value="">Todas as lojas</option>'].concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`)).join('');
+  const checkoutNames = [...new Set(state.lookups.checkouts.map(c => c.nome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const checkouts = ['<option value="">Todos os equipamentos/setor</option>'].concat(checkoutNames.map(name => `<option value="${name}">${name}</option>`)).join('');
+  const types = ['<option value="">Todos os tipos</option>'].concat(state.lookups.types.map(t => `<option value="${t.id}">${t.nome}</option>`)).join('');
+
+  el.content.innerHTML = `
+    <article class="card">
+      <div class="filters">
+        <select id="f-store">${stores}</select>
+        <select id="f-checkout">${checkouts}</select>
+        <select id="f-type">${types}</select>
+        <select id="f-status">
+          <option value="">Todos os status</option>
+          <option value="aberto">Aberto</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="aguardando_retorno">Aguardando retorno</option>
+          <option value="resolvido">Resolvido</option>
+          <option value="fechado">Fechado</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <select id="f-priority">
+          <option value="">Todas prioridades</option>
+          <option value="baixa">Baixa</option>
+          <option value="media">Média</option>
+          <option value="alta">Alta</option>
+          <option value="critica">Crítica</option>
+        </select>
+        <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
+      </div>
+    </article>
+    <article class="card table-wrap">
+      ${ticketTable(state.tickets)}
+    </article>
+  `;
+
+  document.getElementById('btn-apply-filters').addEventListener('click', async () => {
+    await fetchTickets({
+      loja_id: document.getElementById('f-store').value,
+      checkout_name: document.getElementById('f-checkout').value,
+      tipo_chamado_id: document.getElementById('f-type').value,
+      status: document.getElementById('f-status').value,
+      prioridade: document.getElementById('f-priority').value
+    });
+    renderTicketView();
+  });
+
+  bindTicketRowActions();
+}
+
+function adminEntityView(title, id, rows, columns, actions) {
+  const headers = columns.map(c => `<th>${c.label}</th>`).join('');
+  const body = rows.map(row => `
+    <tr>
+      ${columns.map(c => `<td>${typeof c.render === 'function' ? c.render(row) : row[c.key] ?? '-'}</td>`).join('')}
+      <td>
+        <button class="btn btn-sm btn-ghost" data-entity="${id}" data-action="edit" data-id="${row.id}">Editar</button>
+        <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">Excluir/Inativar</button>
+      </td>
+    </tr>
+  `).join('');
+
+  el.content.innerHTML = `
+    <article class="card">
+      <div class="toolbar">
+        <h3>${title}</h3>
+        <button class="btn btn-primary btn-sm" id="btn-create-${id}">Novo</button>
+      </div>
+    </article>
+    <article class="card table-wrap">
+      <table class="table">
+        <thead><tr>${headers}<th>Ações</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </article>
+  `;
+
+  document.getElementById(`btn-create-${id}`).addEventListener('click', actions.create);
+  el.content.querySelectorAll(`button[data-entity="${id}"]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = rows.find(r => String(r.id) === String(btn.dataset.id));
+      if (btn.dataset.action === 'edit') actions.edit(row);
+      if (btn.dataset.action === 'delete') actions.remove(row);
+    });
+  });
+}
+
+function renderStores() {
+  const ui = state.adminUi.stores;
+  const rows = filterAdminRows(state.lookups.stores, ui);
+  const editing = state.lookups.stores.find(s => s.id === ui.editingId) || null;
+
+  el.content.innerHTML = `
+    <article class="card admin-card">
+      <div class="admin-header">
+        <div>
+          <h3>Lojas</h3>
+          <p>Cadastro de lojas para organização de chamados, usuários e equipamentos/setor.</p>
+        </div>
+        <button id="btn-store-new" class="btn btn-primary btn-sm">Novo</button>
+      </div>
+      <form id="store-form" class="admin-form">
+        <div class="grid-2">
+          <label>Nome da loja*
+            <input id="store-name" maxlength="120" required value="${editing?.nome || ''}" />
+          </label>
+          <label>Código*
+            <input id="store-code" maxlength="30" required value="${editing?.codigo || ''}" />
+          </label>
+        </div>
+        <label>Observação (opcional)
+          <textarea id="store-observation" rows="2" maxlength="300">${editing?.observacao || ''}</textarea>
+        </label>
+        <footer class="admin-form-actions">
+          <button type="submit" class="btn btn-primary btn-sm">${editing ? 'Salvar edição' : 'Salvar loja'}</button>
+          ${editing ? '<button type="button" class="btn btn-ghost btn-sm" id="btn-store-cancel-edit">Cancelar edição</button>' : ''}
+        </footer>
+      </form>
+    </article>
+
+    <article class="card admin-card">
+      <div class="filters filters-admin">
+        <input id="stores-search" placeholder="Buscar por nome" value="${ui.search}" />
+        <select id="stores-status">
+          <option value="">Todos os status</option>
+          <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
+          <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
+        </select>
+        <select id="stores-sort">
+          <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
+          <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
+          <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
+          <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
+        </select>
+        <button id="btn-stores-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
+      </div>
+      <div class="table-wrap admin-table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>Nome da loja</th><th>Código</th><th>Status</th><th>Data de cadastro</th><th>Ações</th></tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map(row => `
+              <tr>
+                <td>${row.id}</td>
+                <td>${row.nome}</td>
+                <td>${row.codigo}</td>
+                <td>${badgeActive(row.ativo)}</td>
+                <td>${fmtDate(row.created_at)}</td>
+                <td class="actions-cell">
+                  <button class="btn btn-sm btn-ghost" data-store-action="edit" data-id="${row.id}">Editar</button>
+                  <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-store-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
+                  <button class="btn btn-sm btn-danger" data-store-action="delete" data-id="${row.id}">Excluir</button>
+                </td>
+              </tr>
+            `).join('') : '<tr><td colspan="6">Nenhuma loja encontrada para os filtros aplicados.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  `;
+
+  const form = document.getElementById('store-form');
+  const searchInput = document.getElementById('stores-search');
+  const statusSelect = document.getElementById('stores-status');
+  const sortSelect = document.getElementById('stores-sort');
+
+  searchInput.addEventListener('input', () => {
+    state.adminUi.stores.search = searchInput.value;
+    renderStores();
+  });
+
+  statusSelect.addEventListener('change', () => {
+    state.adminUi.stores.status = statusSelect.value;
+    renderStores();
+  });
+
+  sortSelect.addEventListener('change', () => {
+    state.adminUi.stores.sort = sortSelect.value;
+    renderStores();
+  });
+
+  document.getElementById('btn-stores-clear').addEventListener('click', (e) => {
+    e.preventDefault();
+    state.adminUi.stores = { search: '', status: '', sort: 'name_asc', editingId: null };
+    renderStores();
+  });
+
+  document.getElementById('btn-store-new').addEventListener('click', (e) => {
+    e.preventDefault();
+    state.adminUi.stores.editingId = null;
+    renderStores();
+  });
+
+  if (editing) {
+    document.getElementById('btn-store-cancel-edit').addEventListener('click', () => {
+      state.adminUi.stores.editingId = null;
+      renderStores();
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const nome = document.getElementById('store-name').value.trim();
+    const codigo = document.getElementById('store-code').value.trim().toUpperCase();
+    const observacao = document.getElementById('store-observation').value.trim() || null;
+
+    if (!nome || !codigo) {
+      showToast('Preencha nome e código da loja.', 'error');
+      return;
+    }
+
+    const duplicateCode = state.lookups.stores.find(s =>
+      normalizeText(s.codigo) === normalizeText(codigo) &&
+      s.id !== state.adminUi.stores.editingId
+    );
+    if (duplicateCode) {
+      showToast('Já existe uma loja com esse código.', 'error');
+      return;
+    }
+
+    if (editing) {
+      const updated = await safeQuery(
+        sb.from('lojas').update({ nome, codigo, observacao }).eq('id', editing.id).select().single()
+      );
+      if (!updated) return;
+      showToast('Loja atualizada com sucesso.');
+    } else {
+      const created = await safeQuery(
+        sb.from('lojas').insert({ nome, codigo, observacao }).select().single()
+      );
+      if (!created) return;
+      showToast('Loja cadastrada com sucesso.');
+    }
+
+    state.adminUi.stores.editingId = null;
+    await reloadAll();
+    renderStores();
+  });
+
+  el.content.querySelectorAll('button[data-store-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = state.lookups.stores.find(s => String(s.id) === String(btn.dataset.id));
+      if (!row) return;
+
+      if (btn.dataset.storeAction === 'edit') {
+        state.adminUi.stores.editingId = row.id;
+        renderStores();
+        return;
+      }
+
+      if (btn.dataset.storeAction === 'toggle') {
+        if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} a loja ${row.nome}?`)) return;
+        const updated = await safeQuery(
+          sb.from('lojas').update({ ativo: !row.ativo }).eq('id', row.id).select().single()
+        );
+        if (!updated) return;
+        showToast(`Loja ${updated.ativo ? 'ativada' : 'inativada'} com sucesso.`);
+        await reloadAll();
+        renderStores();
+        return;
+      }
+
+      if (!confirm(`Excluir a loja ${row.nome}? Essa ação pode falhar se houver vínculos.`)) return;
+      const deleted = await safeQuery(sb.from('lojas').delete().eq('id', row.id).select().single());
+      if (!deleted) return;
+      showToast('Loja excluída com sucesso.');
+      state.adminUi.stores.editingId = null;
+      await reloadAll();
+      renderStores();
+    });
+  });
+}
+
+function renderCheckouts() {
+  const templates = getCheckoutTemplates();
+  adminEntityView('Equipamentos/Setor (global para todas as lojas)', 'checkouts', templates, [
+    { key: 'id', label: 'ID' },
+    { key: 'nome', label: 'Equipamentos/Setor' },
+    { key: 'setor', label: 'Setor' },
+    { key: 'totalRows', label: 'Lojas com esse item' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome do equipamento/setor:');
+      if (!nome) return;
+      const setor = prompt('Setor (opcional):') || null;
+      const key = checkoutKey(nome, setor);
+      const inserts = state.lookups.stores
+        .filter(store => !state.lookups.checkouts.some(c => c.loja_id === store.id && checkoutKey(c.nome, c.setor) === key))
+        .map(store => ({ nome: nome.trim(), setor, loja_id: store.id }));
+
+      if (!inserts.length) {
+        showToast('Esse equipamento/setor já existe em todas as lojas.', 'error');
+        return;
+      }
+
+      const created = await safeQuery(sb.from('caixas').insert(inserts).select());
+      if (!created) return;
+      showToast(`Equipamento/setor cadastrado para ${created.length} loja(s).`);
+      await reloadAll();
+      renderCheckouts();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome:', row.nome);
+      if (!nome) return;
+      const setor = prompt('Setor:', row.setor || '') || null;
+      const oldKey = checkoutKey(row.nome, row.setor);
+      const relatedIds = state.lookups.checkouts
+        .filter(c => checkoutKey(c.nome, c.setor) === oldKey)
+        .map(c => c.id);
+      const updated = await safeQuery(sb.from('caixas').update({ nome, setor }).in('id', relatedIds).select());
+      if (!updated) return;
+      showToast(`Equipamento/setor atualizado em ${updated.length} loja(s).`);
+      await reloadAll();
+      renderCheckouts();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      const key = checkoutKey(row.nome, row.setor);
+      const relatedIds = state.lookups.checkouts
+        .filter(c => checkoutKey(c.nome, c.setor) === key)
+        .map(c => c.id);
+      const updated = await safeQuery(sb.from('caixas').update({ ativo: !row.ativo }).in('id', relatedIds).select());
+      if (!updated) return;
+      showToast(`Status aplicado ao equipamento/setor em ${updated.length} loja(s).`);
+      await reloadAll();
+      renderCheckouts();
+    }
+  });
+}
+
+function renderTypes() {
+  const ui = state.adminUi.types;
+  const rows = filterAdminRows(state.lookups.types, ui);
+  const editing = state.lookups.types.find(t => t.id === ui.editingId) || null;
+
+  el.content.innerHTML = `
+    <article class="card admin-card">
+      <div class="admin-header">
+        <div>
+          <h3>Tipos de chamado (Globais)</h3>
+          <p>Os tipos cadastrados aqui ficam disponíveis automaticamente para todas as lojas.</p>
+        </div>
+        <button id="btn-type-new" class="btn btn-primary btn-sm">Novo</button>
+      </div>
+      <form id="type-form" class="admin-form">
+        <div class="grid-2">
+          <label>Nome do tipo*
+            <input id="type-name" maxlength="120" required value="${editing?.nome || ''}" />
+          </label>
+          <label>Status atual
+            <input value="${editing ? (editing.ativo ? 'Ativo' : 'Inativo') : 'Ativo'}" disabled />
+          </label>
+        </div>
+        <label>Descrição
+          <textarea id="type-description" rows="2" maxlength="300">${editing?.descricao || ''}</textarea>
+        </label>
+        <footer class="admin-form-actions">
+          <button type="submit" class="btn btn-primary btn-sm">${editing ? 'Salvar edição' : 'Salvar tipo'}</button>
+          ${editing ? '<button type="button" class="btn btn-ghost btn-sm" id="btn-type-cancel-edit">Cancelar edição</button>' : ''}
+        </footer>
+      </form>
+    </article>
+
+    <article class="card admin-card">
+      <div class="filters filters-admin">
+        <input id="types-search" placeholder="Buscar por nome" value="${ui.search}" />
+        <select id="types-status">
+          <option value="">Todos os status</option>
+          <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
+          <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
+        </select>
+        <select id="types-sort">
+          <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
+          <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
+          <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
+          <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
+        </select>
+        <button id="btn-types-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
+      </div>
+      <div class="table-wrap admin-table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>Nome do tipo</th><th>Descrição</th><th>Status</th><th>Data de cadastro</th><th>Ações</th></tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map(row => `
+              <tr>
+                <td>${row.id}</td>
+                <td>${row.nome}</td>
+                <td>${row.descricao || '-'}</td>
+                <td>${badgeActive(row.ativo)}</td>
+                <td>${fmtDate(row.created_at)}</td>
+                <td class="actions-cell">
+                  <button class="btn btn-sm btn-ghost" data-type-action="edit" data-id="${row.id}">Editar</button>
+                  <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-type-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
+                  <button class="btn btn-sm btn-danger" data-type-action="delete" data-id="${row.id}">Excluir</button>
+                </td>
+              </tr>
+            `).join('') : '<tr><td colspan="6">Nenhum tipo encontrado para os filtros aplicados.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  `;
+
+  const form = document.getElementById('type-form');
+  const searchInput = document.getElementById('types-search');
+  const statusSelect = document.getElementById('types-status');
+  const sortSelect = document.getElementById('types-sort');
+
+  searchInput.addEventListener('input', () => {
+    state.adminUi.types.search = searchInput.value;
+    renderTypes();
+  });
+
+  statusSelect.addEventListener('change', () => {
+    state.adminUi.types.status = statusSelect.value;
+    renderTypes();
+  });
+
+  sortSelect.addEventListener('change', () => {
+    state.adminUi.types.sort = sortSelect.value;
+    renderTypes();
+  });
+
+  document.getElementById('btn-types-clear').addEventListener('click', (e) => {
+    e.preventDefault();
+    state.adminUi.types = { search: '', status: '', sort: 'name_asc', editingId: null };
+    renderTypes();
+  });
+
+  document.getElementById('btn-type-new').addEventListener('click', (e) => {
+    e.preventDefault();
+    state.adminUi.types.editingId = null;
+    renderTypes();
+  });
+
+  if (editing) {
+    document.getElementById('btn-type-cancel-edit').addEventListener('click', () => {
+      state.adminUi.types.editingId = null;
+      renderTypes();
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('type-name').value.trim();
+    const descricao = document.getElementById('type-description').value.trim() || null;
+
+    if (!nome) {
+      showToast('Informe o nome do tipo de chamado.', 'error');
+      return;
+    }
+
+    const duplicateType = state.lookups.types.find(t =>
+      normalizeText(t.nome) === normalizeText(nome) &&
+      t.id !== state.adminUi.types.editingId
+    );
+    if (duplicateType) {
+      showToast('Já existe um tipo com esse nome.', 'error');
+      return;
+    }
+
+    if (editing) {
+      const updated = await safeQuery(
+        sb.from('tipos_chamado').update({ nome, descricao }).eq('id', editing.id).select().single()
+      );
+      if (!updated) return;
+      showToast('Tipo de chamado atualizado com sucesso.');
+    } else {
+      const created = await safeQuery(
+        sb.from('tipos_chamado').insert({ nome, descricao }).select().single()
+      );
+      if (!created) return;
+      showToast('Tipo de chamado cadastrado com sucesso.');
+    }
+
+    state.adminUi.types.editingId = null;
+    await reloadAll();
+    renderTypes();
+  });
+
+  el.content.querySelectorAll('button[data-type-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = state.lookups.types.find(t => String(t.id) === String(btn.dataset.id));
+      if (!row) return;
+
+      if (btn.dataset.typeAction === 'edit') {
+        state.adminUi.types.editingId = row.id;
+        renderTypes();
+        return;
+      }
+
+      if (btn.dataset.typeAction === 'toggle') {
+        if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} o tipo ${row.nome}?`)) return;
+        const updated = await safeQuery(
+          sb.from('tipos_chamado').update({ ativo: !row.ativo }).eq('id', row.id).select().single()
+        );
+        if (!updated) return;
+        showToast(`Tipo ${updated.ativo ? 'ativado' : 'inativado'} com sucesso.`);
+        await reloadAll();
+        renderTypes();
+        return;
+      }
+
+      if (!confirm(`Excluir o tipo ${row.nome}? Essa ação pode falhar se houver chamados vinculados.`)) return;
+      const deleted = await safeQuery(sb.from('tipos_chamado').delete().eq('id', row.id).select().single());
+      if (!deleted) return;
+      showToast('Tipo excluído com sucesso.');
+      state.adminUi.types.editingId = null;
+      await reloadAll();
+      renderTypes();
+    });
+  });
+}
+
+function renderUsers() {
+  adminEntityView('Usuários', 'users', state.lookups.users, [
+    { key: 'nome', label: 'Nome' },
+    { key: 'email', label: 'Email' },
+    { key: 'perfil', label: 'Perfil' },
+    { key: 'loja_id', label: 'Loja', render: row => state.lookups.stores.find(s => s.id === row.loja_id)?.nome || '-' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome:');
+      if (!nome) return;
+      const email = prompt('Email:');
+      if (!email) return;
+      const senha = prompt('Senha inicial (mín. 6):');
+      if (!senha || senha.length < 6) return;
+      const perfil = prompt('Perfil (admin/funcionario):', 'funcionario');
+      const loja = prompt('ID da loja (vazio opcional):');
+
+      const createClient = supabase.createClient(window.APP_CONFIG.supabaseUrl, window.APP_CONFIG.supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      });
+
+      const { error } = await createClient.auth.signUp({
+        email,
+        password: senha,
+        options: {
+          data: {
+            nome,
+            perfil: perfil === 'admin' ? 'admin' : 'funcionario',
+            loja_id: loja ? Number(loja) : null
+          }
+        }
+      });
+
+      if (error) return showToast(error.message, 'error');
+      showToast('Usuário criado. Se confirmação de email estiver ativa, ele precisa confirmar acesso.');
+      await reloadAll();
+      renderUsers();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome:', row.nome);
+      if (!nome) return;
+      const perfil = prompt('Perfil (admin/funcionario):', row.perfil) || row.perfil;
+      const loja = prompt('ID loja (vazio remove):', row.loja_id || '');
+      const ativo = confirm('Usuário ativo? (OK=ativo / Cancel=inativo)');
+      await safeQuery(
+        sb.from('usuarios').update({
+          nome,
+          perfil: perfil === 'admin' ? 'admin' : 'funcionario',
+          loja_id: loja ? Number(loja) : null,
+          ativo
+        }).eq('id', row.id)
+      );
+      await reloadAll();
+      renderUsers();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      await safeQuery(sb.from('usuarios').update({ ativo: !row.ativo }).eq('id', row.id));
+      await reloadAll();
+      renderUsers();
+    }
+  });
+}
+
+function renderReports() {
+  const totalPorLoja = state.lookups.stores.map(s => ({
+    loja: s.nome,
+    total: state.tickets.filter(t => t.loja_id === s.id).length
+  }));
+
+  el.content.innerHTML = `
+    <article class="card">
+      <h3>Relatórios</h3>
+      <p>Resumo por loja e exportação CSV (Excel).</p>
+      <button id="btn-export-csv" class="btn btn-primary btn-sm">Exportar chamados (CSV)</button>
+    </article>
+    <article class="card table-wrap">
+      <table class="table">
+        <thead><tr><th>Loja</th><th>Total de chamados</th></tr></thead>
+        <tbody>
+          ${totalPorLoja.map(x => `<tr><td>${x.loja}</td><td>${x.total}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </article>
+  `;
+
+  document.getElementById('btn-export-csv').addEventListener('click', exportCsv);
+}
+
+function renderSettings() {
+  const user = state.profile;
+  el.content.innerHTML = `
+    <article class="card">
+      <h3>Configurações</h3>
+      <div class="grid-2">
+        <label>Nome
+          <input id="settings-name" value="${user?.nome || ''}" />
+        </label>
+        <label>Email
+          <input value="${user?.email || ''}" disabled />
+        </label>
+      </div>
+      <button id="btn-save-settings" class="btn btn-primary btn-sm">Salvar</button>
+    </article>
+  `;
+
+  document.getElementById('btn-save-settings').addEventListener('click', async () => {
+    const nome = document.getElementById('settings-name').value.trim();
+    if (!nome) return showToast('Informe o nome', 'error');
+    await safeQuery(sb.from('usuarios').update({ nome }).eq('id', state.profile.id));
+    state.profile.nome = nome;
+    el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
+    showToast('Perfil atualizado');
+  });
+}
+
+async function renderView() {
+  el.viewTitle.textContent = state.menu.find(m => m.id === state.currentView)?.label || 'Painel';
+
+  if (state.currentView === 'dashboard') return renderDashboard();
+  if (state.currentView === 'tickets') return renderTicketView();
+  if (state.currentView === 'stores') return renderStores();
+  if (state.currentView === 'checkouts') return renderCheckouts();
+  if (state.currentView === 'types') return renderTypes();
+  if (state.currentView === 'users') return renderUsers();
+  if (state.currentView === 'reports') return renderReports();
+  if (state.currentView === 'settings') return renderSettings();
+}
+
+function bindTicketRowActions() {
+  el.content.querySelectorAll('button[data-action="open"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ticketId = Number(btn.dataset.id);
+      await openTicketDetails(ticketId);
+    });
+  });
+}
+
+async function openTicketDetails(ticketId) {
+  const ticket = state.tickets.find(t => t.id === ticketId);
+  if (!ticket) return;
+
+  const history = await safeQuery(
+    sb.from('historico_chamados')
+      .select('*, usuario:usuarios(nome)')
+      .eq('chamado_id', ticketId)
+      .order('created_at', { ascending: false })
+  ) || [];
+
+  const statusActions = isAdmin()
+    ? `<div class="toolbar">
+        <select id="ticket-status-update">
+          <option value="aberto">Aberto</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="aguardando_retorno">Aguardando retorno</option>
+          <option value="resolvido">Resolvido</option>
+          <option value="fechado">Fechado</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
+      </div>`
+    : '';
+
+  el.detailsContent.innerHTML = `
+    <h2>Chamado ${ticket.numero_chamado || ticket.id}</h2>
+    <p><strong>Loja:</strong> ${ticket.loja?.nome || '-'} | <strong>Equipamentos/Setor:</strong> ${ticket.caixa?.nome || '-'}</p>
+    <p><strong>Tipo:</strong> ${ticket.tipo?.nome || '-'} | <strong>Prioridade:</strong> ${badgePriority(ticket.prioridade)} | <strong>Status:</strong> ${badgeStatus(ticket.status)}</p>
+    <p><strong>Título:</strong> ${ticket.titulo}</p>
+    <p><strong>Descrição:</strong> ${ticket.descricao}</p>
+    <p><strong>Abertura:</strong> ${fmtDate(ticket.created_at)} | <strong>Solicitante:</strong> ${ticket.usuario?.nome || '-'}</p>
+    ${ticket.anexo_url ? `<p><a href="${ticket.anexo_url}" target="_blank">Ver anexo</a></p>` : ''}
+    ${statusActions}
+    <div class="card">
+      <h3>Adicionar observação</h3>
+      <textarea id="obs-text" rows="3" placeholder="Digite uma observação"></textarea>
+      <button id="btn-add-observation" class="btn btn-primary btn-sm" data-id="${ticket.id}">Registrar observação</button>
+    </div>
+    <div class="card">
+      <h3>Histórico</h3>
+      ${history.length ? history.map(h => `
+        <div class="history-item">
+          <strong>${h.acao}</strong> - ${fmtDate(h.created_at)}
+          <div>${h.descricao || ''}</div>
+          <small>Por: ${h.usuario?.nome || 'Sistema'}</small>
+        </div>
+      `).join('') : '<p>Sem histórico.</p>'}
+    </div>
+    <footer class="modal-footer">
+      <button class="btn btn-ghost" id="btn-close-details">Fechar</button>
+    </footer>
+  `;
+
+  if (isAdmin()) {
+    const select = document.getElementById('ticket-status-update');
+    select.value = ticket.status;
+    document.getElementById('btn-change-status').addEventListener('click', async () => {
+      const nextStatus = select.value;
+      await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id));
+      showToast('Status atualizado');
+      await reloadAll();
+      await openTicketDetails(ticket.id);
+      renderView();
+    });
+  }
+
+  document.getElementById('btn-add-observation').addEventListener('click', async () => {
+    const text = document.getElementById('obs-text').value.trim();
+    if (!text) return showToast('Digite a observação', 'error');
+    await safeQuery(sb.rpc('add_ticket_observation', { p_chamado_id: ticket.id, p_texto: text }));
+    showToast('Observação registrada');
+    await openTicketDetails(ticket.id);
+  });
+
+  document.getElementById('btn-close-details').addEventListener('click', () => el.detailsModal.close());
+  el.detailsModal.showModal();
+}
+
+async function reloadAll() {
+  await loadLookups();
+  await fetchTickets();
+}
+
+function setupTicketModal() {
+  document.getElementById('ticket-store').addEventListener('change', (e) => {
+    const storeId = Number(e.target.value);
+    const options = state.lookups.checkouts
+      .filter(c => c.ativo && c.loja_id === storeId)
+      .map(c => `<option value="${c.id}">${c.nome}${c.setor ? ` - ${c.setor}` : ''}</option>`)
+      .join('');
+
+    document.getElementById('ticket-checkout').innerHTML = options || '<option value="">Sem equipamentos/setor ativos</option>';
+  });
+
+  el.btnOpenTicket.addEventListener('click', async () => {
+    await syncGlobalCheckoutsAcrossStores();
+    const storeSelect = document.getElementById('ticket-store');
+
+    if (!isAdmin() && state.profile.loja_id) {
+      storeSelect.value = String(state.profile.loja_id);
+      storeSelect.dispatchEvent(new Event('change'));
+      storeSelect.setAttribute('disabled', 'disabled');
+    } else {
+      storeSelect.removeAttribute('disabled');
+      const firstStore = state.lookups.stores.find(s => s.ativo);
+      if (firstStore && !storeSelect.value) {
+        storeSelect.value = String(firstStore.id);
+      }
+      storeSelect.dispatchEvent(new Event('change'));
+    }
+
+    el.ticketModal.showModal();
+  });
+
+  document.getElementById('btn-close-ticket').addEventListener('click', () => el.ticketModal.close());
+
+  el.ticketForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const payload = {
+      loja_id: Number(document.getElementById('ticket-store').value),
+      caixa_id: Number(document.getElementById('ticket-checkout').value),
+      tipo_chamado_id: Number(document.getElementById('ticket-type').value),
+      usuario_id: state.profile.id,
+      titulo: document.getElementById('ticket-title').value.trim(),
+      descricao: document.getElementById('ticket-description').value.trim(),
+      prioridade: document.getElementById('ticket-priority').value,
+      anexo_url: document.getElementById('ticket-attachment').value.trim() || null,
+      telefone_retorno: null,
+      responsavel_local: null,
+      status: 'aberto'
+    };
+
+    if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
+      return showToast('Preencha os campos obrigatórios', 'error');
+    }
+
+    const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
+    if (!inserted) return;
+
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
+    el.ticketForm.reset();
+    el.ticketModal.close();
+    await reloadAll();
+    renderView();
+  });
+}
+
+function exportCsv() {
+  const header = [
+    'numero_chamado', 'loja', 'caixa', 'tipo', 'titulo', 'prioridade', 'status', 'abertura', 'solicitante'
+  ];
+
+  const lines = state.tickets.map(t => [
+    t.numero_chamado || t.id,
+    t.loja?.nome || '',
+    t.caixa?.nome || '',
+    t.tipo?.nome || '',
+    t.titulo,
+    t.prioridade,
+    t.status,
+    fmtDate(t.created_at),
+    t.usuario?.nome || ''
+  ].map(v => `"${String(v).replaceAll('"', '""')}"`).join(','));
+
+  const csv = [header.join(','), ...lines].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `chamados_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function bootApp(session) {
+  state.session = session;
+  await ensureProfile(session.user);
+
+  if (!state.profile.ativo) {
+    showToast('Usuário inativo. Contate o administrador.', 'error');
+    await sb.auth.signOut();
+    return;
+  }
+
+  el.authView.classList.add('hidden');
+  el.appView.classList.remove('hidden');
+  el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
+  if (el.btnAdminQuick) {
+    el.btnAdminQuick.classList.toggle('hidden', !isAdmin());
+  }
+
+  await reloadAll();
+  mountMenu();
+  await renderView();
+}
+
+function bootAuth() {
+  document.getElementById('btn-go-register').addEventListener('click', () => {
+    el.loginForm.classList.add('hidden');
+    el.registerForm.classList.remove('hidden');
+  });
+
+  document.getElementById('btn-go-login').addEventListener('click', () => {
+    el.registerForm.classList.add('hidden');
+    el.loginForm.classList.remove('hidden');
+  });
+
+  el.loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) return showToast(error.message, 'error');
+  });
+
+  el.registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    const perfil = document.getElementById('register-role').value;
+    const loja_id = document.getElementById('register-store').value || null;
+
+    const { error } = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          nome,
+          perfil,
+          loja_id: loja_id ? Number(loja_id) : null
+        }
+      }
+    });
+
+    if (error) return showToast(error.message, 'error');
+    showToast('Cadastro criado. Faça login para continuar.');
+    el.registerForm.reset();
+    el.registerForm.classList.add('hidden');
+    el.loginForm.classList.remove('hidden');
+  });
+}
+
+function bindTopActions() {
+  if (el.btnNavToggle) {
+    el.btnNavToggle.addEventListener('click', () => {
+      const isOpen = document.body.classList.contains('nav-open');
+      setNavOpen(!isOpen);
+    });
+  }
+
+  if (el.btnNavClose) {
+    el.btnNavClose.addEventListener('click', () => setNavOpen(false));
+  }
+
+  if (el.navOverlay) {
+    el.navOverlay.addEventListener('click', () => setNavOpen(false));
+  }
+
+  el.btnLogout.addEventListener('click', async () => {
+    await sb.auth.signOut();
+  });
+
+  if (el.btnAdminQuick) {
+    el.btnAdminQuick.addEventListener('click', async () => {
+      if (!isAdmin()) return showToast('Acesso restrito para administradores.', 'error');
+      state.currentView = 'stores';
+      mountMenu();
+      await renderView();
+    });
+  }
+
+  if (el.btnThemeToggle) {
+    el.btnThemeToggle.addEventListener('click', () => {
+      document.body.classList.toggle('theme-light');
+    });
+  }
+
+  el.globalSearch.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const number = el.globalSearch.value.trim();
+    if (!number) return;
+
+    const data = await safeQuery(
+      sb.from('chamados').select(`
+        *,
+        loja:lojas(id,nome,codigo),
+        caixa:caixas(id,nome,setor),
+        tipo:tipos_chamado(id,nome),
+        usuario:usuarios(id,nome,email)
+      `).ilike('numero_chamado', `%${number}%`).limit(1)
+    );
+
+    if (!data || !data.length) return showToast('Chamado não encontrado', 'error');
+    await fetchTickets();
+    await openTicketDetails(data[0].id);
+  });
+}
+
+async function init() {
+  if (!window.sb) return;
+
+  bootAuth();
+  bindTopActions();
+  setupTicketModal();
+
+  await loadLookups();
+
+  const { data } = await sb.auth.getSession();
+  if (data.session) await bootApp(data.session);
+
+  sb.auth.onAuthStateChange(async (_event, session) => {
+    if (session) {
+      await bootApp(session);
+    } else {
+      state.session = null;
+      state.profile = null;
+      el.appView.classList.add('hidden');
+      el.authView.classList.remove('hidden');
+      el.loginForm.classList.remove('hidden');
+      el.registerForm.classList.add('hidden');
+    }
+  });
+}
+
+init();

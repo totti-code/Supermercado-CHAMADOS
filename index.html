@@ -1,0 +1,153 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SuperMercado TI - Chamados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="toast-container"></div>
+
+  <main id="auth-view" class="auth-shell">
+    <section class="auth-card">
+      <div class="auth-brand">
+        <img src="assets/logomartree.png" alt="Logo Martree" class="auth-logo" />
+        <div>
+          <h1>Suporte Martree</h1>
+          <p>Painel de chamados</p>
+        </div>
+      </div>
+      <form id="login-form" class="form-grid">
+        <label>Email
+          <input type="email" id="login-email" required placeholder="seu@email.com" />
+        </label>
+        <label>Senha
+          <input type="password" id="login-password" required minlength="6" placeholder="******" />
+        </label>
+        <button type="submit" class="btn btn-primary">Entrar</button>
+      </form>
+      <div class="auth-actions">
+        <button id="btn-go-register" class="btn btn-ghost">Criar conta</button>
+      </div>
+
+      <form id="register-form" class="form-grid hidden">
+        <h2>Novo usuário</h2>
+        <label>Nome
+          <input type="text" id="register-name" required />
+        </label>
+        <label>Email
+          <input type="email" id="register-email" required />
+        </label>
+        <label>Senha
+          <input type="password" id="register-password" required minlength="6" />
+        </label>
+        <label>Perfil
+          <select id="register-role" required>
+            <option value="funcionario">Funcionário</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <label>Loja (opcional)
+          <select id="register-store"></select>
+        </label>
+        <button type="submit" class="btn btn-primary">Cadastrar</button>
+        <button type="button" id="btn-go-login" class="btn btn-ghost">Voltar para login</button>
+      </form>
+    </section>
+  </main>
+
+  <main id="app-view" class="app-shell hidden">
+    <aside class="sidebar">
+      <button id="btn-nav-close" class="btn btn-ghost btn-sm sidebar-close" type="button">Fechar</button>
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <img src="assets/logomartree.png" alt="Logo Martree" class="brand-logo-img" />
+        </div>
+        <div class="brand-copy">
+          <h2>Suporte Martree</h2>
+          <small>Painel de chamados</small>
+        </div>
+      </div>
+      <nav id="menu-nav"></nav>
+      <div class="quick-actions">
+        <button id="btn-admin-quick" class="btn btn-ghost btn-sm">Admin</button>
+        <button id="btn-theme-toggle" class="btn btn-ghost btn-sm">Tema</button>
+        <button id="btn-logout" class="btn btn-danger btn-sm">Sair</button>
+      </div>
+    </aside>
+    <div id="nav-overlay" class="nav-overlay"></div>
+
+    <section class="main-panel">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="btn-nav-toggle" class="btn btn-ghost btn-sm" type="button">Menu</button>
+          <div>
+          <h1 id="view-title">Dashboard</h1>
+          <p id="user-info"></p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <input id="global-search" placeholder="Buscar por número do chamado" />
+          <button id="btn-open-ticket" class="btn btn-primary">Novo chamado</button>
+        </div>
+      </header>
+
+      <section id="content"></section>
+    </section>
+  </main>
+
+  <dialog id="ticket-modal" class="modal">
+    <form id="ticket-form" class="modal-body">
+      <h2>Abrir chamado</h2>
+      <div class="grid-2">
+        <label>Loja*
+          <select id="ticket-store" required></select>
+        </label>
+        <label>Equipamentos/Setor*
+          <select id="ticket-checkout" required></select>
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Tipo*
+          <select id="ticket-type" required></select>
+        </label>
+        <label>Prioridade*
+          <select id="ticket-priority" required>
+            <option value="baixa">Baixa</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta</option>
+            <option value="critica">Crítica</option>
+          </select>
+        </label>
+      </div>
+      <label>Título*
+        <input id="ticket-title" required maxlength="120" />
+      </label>
+      <label>Descrição detalhada*
+        <textarea id="ticket-description" rows="4" required></textarea>
+      </label>
+      <label>Anexo URL
+        <input id="ticket-attachment" placeholder="https://..." />
+      </label>
+      <footer class="modal-footer">
+        <button type="button" id="btn-close-ticket" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar chamado</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="details-modal" class="modal">
+    <section class="modal-body" id="details-content"></section>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,889 @@
+const state = {
+  session: null,
+  profile: null,
+  currentView: 'dashboard',
+  menu: [],
+  lookups: {
+    stores: [],
+    checkouts: [],
+    types: [],
+    users: []
+  },
+  tickets: [],
+  charts: {}
+};
+
+const MENU_ADMIN = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'tickets', label: 'Chamados' },
+  { id: 'stores', label: 'Lojas' },
+  { id: 'checkouts', label: 'Caixas' },
+  { id: 'types', label: 'Tipos de chamado' },
+  { id: 'users', label: 'Usuários' },
+  { id: 'reports', label: 'Relatórios' },
+  { id: 'settings', label: 'Configurações' }
+];
+
+const MENU_FUNC = [
+  { id: 'dashboard', label: 'Meu painel' },
+  { id: 'tickets', label: 'Meus chamados' },
+  { id: 'settings', label: 'Configurações' }
+];
+
+const el = {
+  authView: document.getElementById('auth-view'),
+  appView: document.getElementById('app-view'),
+  loginForm: document.getElementById('login-form'),
+  registerForm: document.getElementById('register-form'),
+  userInfo: document.getElementById('user-info'),
+  viewTitle: document.getElementById('view-title'),
+  menuNav: document.getElementById('menu-nav'),
+  content: document.getElementById('content'),
+  btnLogout: document.getElementById('btn-logout'),
+  btnOpenTicket: document.getElementById('btn-open-ticket'),
+  ticketModal: document.getElementById('ticket-modal'),
+  detailsModal: document.getElementById('details-modal'),
+  detailsContent: document.getElementById('details-content'),
+  ticketForm: document.getElementById('ticket-form'),
+  globalSearch: document.getElementById('global-search')
+};
+
+function showToast(msg, type = 'ok') {
+  const container = document.getElementById('toast-container');
+  const node = document.createElement('div');
+  node.className = `toast ${type === 'error' ? 'error' : ''}`;
+  node.textContent = msg;
+  container.appendChild(node);
+  setTimeout(() => node.remove(), 3500);
+}
+
+function fmtDate(value) {
+  if (!value) return '-';
+  return new Date(value).toLocaleString('pt-BR');
+}
+
+function badgeStatus(s) {
+  const map = {
+    aberto: 'Aberto',
+    em_andamento: 'Em andamento',
+    aguardando_retorno: 'Aguardando retorno',
+    resolvido: 'Resolvido',
+    fechado: 'Fechado',
+    cancelado: 'Cancelado'
+  };
+  return `<span class="badge b-status-${s}">${map[s] || s}</span>`;
+}
+
+function badgePriority(p) {
+  const map = { baixa: 'Baixa', media: 'Média', alta: 'Alta', critica: 'Crítica' };
+  return `<span class="badge b-prioridade-${p}">${map[p] || p}</span>`;
+}
+
+async function safeQuery(promise) {
+  const { data, error } = await promise;
+  if (error) {
+    showToast(error.message, 'error');
+    return null;
+  }
+  return data;
+}
+
+async function loadLookups() {
+  const [stores, checkouts, types, users] = await Promise.all([
+    safeQuery(sb.from('lojas').select('*').order('nome')),
+    safeQuery(sb.from('caixas').select('*').order('nome')),
+    safeQuery(sb.from('tipos_chamado').select('*').order('nome')),
+    safeQuery(sb.from('usuarios').select('*').order('nome'))
+  ]);
+
+  state.lookups.stores = stores || [];
+  state.lookups.checkouts = checkouts || [];
+  state.lookups.types = types || [];
+  state.lookups.users = users || [];
+
+  hydrateStoreSelects();
+}
+
+function hydrateStoreSelects() {
+  const storeOptions = ['<option value="">Selecione</option>']
+    .concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`))
+    .join('');
+
+  document.getElementById('ticket-store').innerHTML = storeOptions;
+  document.getElementById('register-store').innerHTML = `<option value="">Sem vínculo</option>${state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}`;
+
+  document.getElementById('ticket-type').innerHTML = state.lookups.types
+    .filter(t => t.ativo)
+    .map(t => `<option value="${t.id}">${t.nome}</option>`)
+    .join('');
+}
+
+async function ensureProfile(sessionUser) {
+  const row = await safeQuery(sb.from('usuarios').select('*').eq('id', sessionUser.id).maybeSingle());
+  if (row) {
+    state.profile = row;
+    return;
+  }
+
+  const payload = {
+    id: sessionUser.id,
+    nome: sessionUser.user_metadata?.nome || sessionUser.email.split('@')[0],
+    email: sessionUser.email,
+    perfil: sessionUser.user_metadata?.perfil || 'funcionario',
+    loja_id: sessionUser.user_metadata?.loja_id || null,
+    ativo: true
+  };
+
+  const inserted = await safeQuery(sb.from('usuarios').insert(payload).select().single());
+  state.profile = inserted;
+}
+
+function isAdmin() {
+  return state.profile?.perfil === 'admin';
+}
+
+function mountMenu() {
+  state.menu = isAdmin() ? MENU_ADMIN : MENU_FUNC;
+  el.menuNav.innerHTML = state.menu
+    .map(item => `<button class="nav-btn ${item.id === state.currentView ? 'active' : ''}" data-view="${item.id}">${item.label}</button>`)
+    .join('');
+
+  el.menuNav.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.currentView = btn.dataset.view;
+      mountMenu();
+      renderView();
+    });
+  });
+}
+
+async function fetchTickets(filters = {}) {
+  let query = sb.from('chamados').select(`
+    *,
+    loja:lojas(id,nome,codigo),
+    caixa:caixas(id,nome,setor),
+    tipo:tipos_chamado(id,nome),
+    usuario:usuarios(id,nome,email)
+  `).order('created_at', { ascending: false });
+
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== '') query = query.eq(k, v);
+  });
+
+  const data = await safeQuery(query);
+  state.tickets = data || [];
+  return state.tickets;
+}
+
+function renderDashboard() {
+  const all = state.tickets;
+  const kpi = {
+    aberto: all.filter(x => x.status === 'aberto').length,
+    andamento: all.filter(x => x.status === 'em_andamento').length,
+    resolvido: all.filter(x => x.status === 'resolvido').length,
+    fechado: all.filter(x => x.status === 'fechado').length,
+    critico: all.filter(x => x.prioridade === 'critica').length
+  };
+
+  el.content.innerHTML = `
+    <article class="cards-grid">
+      <section class="kpi"><strong>${all.length}</strong><span>Total</span></section>
+      <section class="kpi"><strong>${kpi.aberto}</strong><span>Abertos</span></section>
+      <section class="kpi"><strong>${kpi.andamento}</strong><span>Em andamento</span></section>
+      <section class="kpi"><strong>${kpi.resolvido}</strong><span>Resolvidos</span></section>
+      <section class="kpi"><strong>${kpi.fechado}</strong><span>Fechados</span></section>
+      <section class="kpi"><strong>${kpi.critico}</strong><span>Críticos</span></section>
+    </article>
+
+    <article class="card">
+      <h3>Gráficos</h3>
+      <div class="grid-2">
+        <canvas id="chart-status" height="180"></canvas>
+        <canvas id="chart-priority" height="180"></canvas>
+      </div>
+    </article>
+
+    <article class="card table-wrap">
+      <h3>Chamados mais recentes</h3>
+      ${ticketTable(all.slice(0, 10))}
+    </article>
+  `;
+
+  const byStatus = ['aberto', 'em_andamento', 'aguardando_retorno', 'resolvido', 'fechado', 'cancelado']
+    .map(s => all.filter(x => x.status === s).length);
+  const byPriority = ['baixa', 'media', 'alta', 'critica']
+    .map(p => all.filter(x => x.prioridade === p).length);
+
+  buildChart('chart-status', 'Chamados por status', ['Aberto', 'Andamento', 'Aguardando', 'Resolvido', 'Fechado', 'Cancelado'], byStatus);
+  buildChart('chart-priority', 'Chamados por prioridade', ['Baixa', 'Média', 'Alta', 'Crítica'], byPriority);
+
+  bindTicketRowActions();
+}
+
+function buildChart(id, label, labels, values) {
+  if (state.charts[id]) state.charts[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  state.charts[id] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label,
+        data: values,
+        backgroundColor: ['#0f6abf', '#f8a300', '#7a4be0', '#1f9d59', '#475a78', '#d13a30']
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
+}
+
+function ticketTable(rows) {
+  return `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Nº</th><th>Loja</th><th>Caixa</th><th>Tipo</th><th>Título</th>
+          <th>Prioridade</th><th>Status</th><th>Abertura</th><th>Solicitante</th><th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.numero_chamado || r.id}</td>
+            <td>${r.loja?.nome || '-'}</td>
+            <td>${r.caixa?.nome || '-'}</td>
+            <td>${r.tipo?.nome || '-'}</td>
+            <td>${r.titulo}</td>
+            <td>${badgePriority(r.prioridade)}</td>
+            <td>${badgeStatus(r.status)}</td>
+            <td>${fmtDate(r.created_at)}</td>
+            <td>${r.usuario?.nome || '-'}</td>
+            <td>
+              <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderTicketView() {
+  const stores = ['<option value="">Todas as lojas</option>'].concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`)).join('');
+  const checkouts = ['<option value="">Todos os caixas</option>'].concat(state.lookups.checkouts.map(c => `<option value="${c.id}">${c.nome}</option>`)).join('');
+  const types = ['<option value="">Todos os tipos</option>'].concat(state.lookups.types.map(t => `<option value="${t.id}">${t.nome}</option>`)).join('');
+
+  el.content.innerHTML = `
+    <article class="card">
+      <div class="filters">
+        <select id="f-store">${stores}</select>
+        <select id="f-checkout">${checkouts}</select>
+        <select id="f-type">${types}</select>
+        <select id="f-status">
+          <option value="">Todos os status</option>
+          <option value="aberto">Aberto</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="aguardando_retorno">Aguardando retorno</option>
+          <option value="resolvido">Resolvido</option>
+          <option value="fechado">Fechado</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <select id="f-priority">
+          <option value="">Todas prioridades</option>
+          <option value="baixa">Baixa</option>
+          <option value="media">Média</option>
+          <option value="alta">Alta</option>
+          <option value="critica">Crítica</option>
+        </select>
+        <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
+      </div>
+    </article>
+    <article class="card table-wrap">
+      ${ticketTable(state.tickets)}
+    </article>
+  `;
+
+  document.getElementById('btn-apply-filters').addEventListener('click', async () => {
+    await fetchTickets({
+      loja_id: document.getElementById('f-store').value,
+      caixa_id: document.getElementById('f-checkout').value,
+      tipo_chamado_id: document.getElementById('f-type').value,
+      status: document.getElementById('f-status').value,
+      prioridade: document.getElementById('f-priority').value
+    });
+    renderTicketView();
+  });
+
+  bindTicketRowActions();
+}
+
+function adminEntityView(title, id, rows, columns, actions) {
+  const headers = columns.map(c => `<th>${c.label}</th>`).join('');
+  const body = rows.map(row => `
+    <tr>
+      ${columns.map(c => `<td>${typeof c.render === 'function' ? c.render(row) : row[c.key] ?? '-'}</td>`).join('')}
+      <td>
+        <button class="btn btn-sm btn-ghost" data-entity="${id}" data-action="edit" data-id="${row.id}">Editar</button>
+        <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">Excluir/Inativar</button>
+      </td>
+    </tr>
+  `).join('');
+
+  el.content.innerHTML = `
+    <article class="card">
+      <div class="toolbar">
+        <h3>${title}</h3>
+        <button class="btn btn-primary btn-sm" id="btn-create-${id}">Novo</button>
+      </div>
+    </article>
+    <article class="card table-wrap">
+      <table class="table">
+        <thead><tr>${headers}<th>Ações</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </article>
+  `;
+
+  document.getElementById(`btn-create-${id}`).addEventListener('click', actions.create);
+  el.content.querySelectorAll(`button[data-entity="${id}"]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = rows.find(r => String(r.id) === String(btn.dataset.id));
+      if (btn.dataset.action === 'edit') actions.edit(row);
+      if (btn.dataset.action === 'delete') actions.remove(row);
+    });
+  });
+}
+
+function renderStores() {
+  adminEntityView('Lojas', 'stores', state.lookups.stores, [
+    { key: 'id', label: 'ID' },
+    { key: 'nome', label: 'Nome' },
+    { key: 'codigo', label: 'Código' },
+    { key: 'endereco', label: 'Endereço' },
+    { key: 'telefone', label: 'Telefone' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativa' : 'Inativa' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome da loja:');
+      if (!nome) return;
+      const codigo = prompt('Código da loja:');
+      if (!codigo) return;
+      await safeQuery(sb.from('lojas').insert({ nome, codigo }));
+      await reloadAll();
+      renderStores();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome da loja:', row.nome);
+      if (!nome) return;
+      const endereco = prompt('Endereço:', row.endereco || '');
+      const telefone = prompt('Telefone:', row.telefone || '');
+      await safeQuery(sb.from('lojas').update({ nome, endereco, telefone }).eq('id', row.id));
+      await reloadAll();
+      renderStores();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      await safeQuery(sb.from('lojas').update({ ativo: !row.ativo }).eq('id', row.id));
+      await reloadAll();
+      renderStores();
+    }
+  });
+}
+
+function renderCheckouts() {
+  adminEntityView('Caixas', 'checkouts', state.lookups.checkouts, [
+    { key: 'id', label: 'ID' },
+    { key: 'nome', label: 'Caixa/Setor' },
+    { key: 'setor', label: 'Setor' },
+    { key: 'loja_id', label: 'Loja', render: row => state.lookups.stores.find(s => s.id === row.loja_id)?.nome || '-' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome do caixa/setor:');
+      if (!nome) return;
+      const lojaId = Number(prompt('ID da loja vinculada:'));
+      if (!lojaId) return showToast('Loja inválida', 'error');
+      const setor = prompt('Setor (opcional):') || null;
+      await safeQuery(sb.from('caixas').insert({ nome, loja_id: lojaId, setor }));
+      await reloadAll();
+      renderCheckouts();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome:', row.nome);
+      if (!nome) return;
+      const setor = prompt('Setor:', row.setor || '') || null;
+      await safeQuery(sb.from('caixas').update({ nome, setor }).eq('id', row.id));
+      await reloadAll();
+      renderCheckouts();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      await safeQuery(sb.from('caixas').update({ ativo: !row.ativo }).eq('id', row.id));
+      await reloadAll();
+      renderCheckouts();
+    }
+  });
+}
+
+function renderTypes() {
+  adminEntityView('Tipos de chamado', 'types', state.lookups.types, [
+    { key: 'id', label: 'ID' },
+    { key: 'nome', label: 'Tipo' },
+    { key: 'descricao', label: 'Descrição' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome do tipo:');
+      if (!nome) return;
+      const descricao = prompt('Descrição:') || null;
+      await safeQuery(sb.from('tipos_chamado').insert({ nome, descricao }));
+      await reloadAll();
+      renderTypes();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome do tipo:', row.nome);
+      if (!nome) return;
+      const descricao = prompt('Descrição:', row.descricao || '') || null;
+      await safeQuery(sb.from('tipos_chamado').update({ nome, descricao }).eq('id', row.id));
+      await reloadAll();
+      renderTypes();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      await safeQuery(sb.from('tipos_chamado').update({ ativo: !row.ativo }).eq('id', row.id));
+      await reloadAll();
+      renderTypes();
+    }
+  });
+}
+
+function renderUsers() {
+  adminEntityView('Usuários', 'users', state.lookups.users, [
+    { key: 'nome', label: 'Nome' },
+    { key: 'email', label: 'Email' },
+    { key: 'perfil', label: 'Perfil' },
+    { key: 'loja_id', label: 'Loja', render: row => state.lookups.stores.find(s => s.id === row.loja_id)?.nome || '-' },
+    { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
+  ], {
+    create: async () => {
+      const nome = prompt('Nome:');
+      if (!nome) return;
+      const email = prompt('Email:');
+      if (!email) return;
+      const senha = prompt('Senha inicial (mín. 6):');
+      if (!senha || senha.length < 6) return;
+      const perfil = prompt('Perfil (admin/funcionario):', 'funcionario');
+      const loja = prompt('ID da loja (vazio opcional):');
+
+      const createClient = supabase.createClient(window.APP_CONFIG.supabaseUrl, window.APP_CONFIG.supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+      });
+
+      const { error } = await createClient.auth.signUp({
+        email,
+        password: senha,
+        options: {
+          data: {
+            nome,
+            perfil: perfil === 'admin' ? 'admin' : 'funcionario',
+            loja_id: loja ? Number(loja) : null
+          }
+        }
+      });
+
+      if (error) return showToast(error.message, 'error');
+      showToast('Usuário criado. Se confirmação de email estiver ativa, ele precisa confirmar acesso.');
+      await reloadAll();
+      renderUsers();
+    },
+    edit: async (row) => {
+      const nome = prompt('Nome:', row.nome);
+      if (!nome) return;
+      const perfil = prompt('Perfil (admin/funcionario):', row.perfil) || row.perfil;
+      const loja = prompt('ID loja (vazio remove):', row.loja_id || '');
+      const ativo = confirm('Usuário ativo? (OK=ativo / Cancel=inativo)');
+      await safeQuery(
+        sb.from('usuarios').update({
+          nome,
+          perfil: perfil === 'admin' ? 'admin' : 'funcionario',
+          loja_id: loja ? Number(loja) : null,
+          ativo
+        }).eq('id', row.id)
+      );
+      await reloadAll();
+      renderUsers();
+    },
+    remove: async (row) => {
+      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      await safeQuery(sb.from('usuarios').update({ ativo: !row.ativo }).eq('id', row.id));
+      await reloadAll();
+      renderUsers();
+    }
+  });
+}
+
+function renderReports() {
+  const totalPorLoja = state.lookups.stores.map(s => ({
+    loja: s.nome,
+    total: state.tickets.filter(t => t.loja_id === s.id).length
+  }));
+
+  el.content.innerHTML = `
+    <article class="card">
+      <h3>Relatórios</h3>
+      <p>Resumo por loja e exportação CSV (Excel).</p>
+      <button id="btn-export-csv" class="btn btn-primary btn-sm">Exportar chamados (CSV)</button>
+    </article>
+    <article class="card table-wrap">
+      <table class="table">
+        <thead><tr><th>Loja</th><th>Total de chamados</th></tr></thead>
+        <tbody>
+          ${totalPorLoja.map(x => `<tr><td>${x.loja}</td><td>${x.total}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </article>
+  `;
+
+  document.getElementById('btn-export-csv').addEventListener('click', exportCsv);
+}
+
+function renderSettings() {
+  const user = state.profile;
+  el.content.innerHTML = `
+    <article class="card">
+      <h3>Configurações</h3>
+      <div class="grid-2">
+        <label>Nome
+          <input id="settings-name" value="${user?.nome || ''}" />
+        </label>
+        <label>Email
+          <input value="${user?.email || ''}" disabled />
+        </label>
+      </div>
+      <button id="btn-save-settings" class="btn btn-primary btn-sm">Salvar</button>
+    </article>
+  `;
+
+  document.getElementById('btn-save-settings').addEventListener('click', async () => {
+    const nome = document.getElementById('settings-name').value.trim();
+    if (!nome) return showToast('Informe o nome', 'error');
+    await safeQuery(sb.from('usuarios').update({ nome }).eq('id', state.profile.id));
+    state.profile.nome = nome;
+    el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
+    showToast('Perfil atualizado');
+  });
+}
+
+async function renderView() {
+  el.viewTitle.textContent = state.menu.find(m => m.id === state.currentView)?.label || 'Painel';
+
+  if (state.currentView === 'dashboard') return renderDashboard();
+  if (state.currentView === 'tickets') return renderTicketView();
+  if (state.currentView === 'stores') return renderStores();
+  if (state.currentView === 'checkouts') return renderCheckouts();
+  if (state.currentView === 'types') return renderTypes();
+  if (state.currentView === 'users') return renderUsers();
+  if (state.currentView === 'reports') return renderReports();
+  if (state.currentView === 'settings') return renderSettings();
+}
+
+function bindTicketRowActions() {
+  el.content.querySelectorAll('button[data-action="open"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const ticketId = Number(btn.dataset.id);
+      await openTicketDetails(ticketId);
+    });
+  });
+}
+
+async function openTicketDetails(ticketId) {
+  const ticket = state.tickets.find(t => t.id === ticketId);
+  if (!ticket) return;
+
+  const history = await safeQuery(
+    sb.from('historico_chamados')
+      .select('*, usuario:usuarios(nome)')
+      .eq('chamado_id', ticketId)
+      .order('created_at', { ascending: false })
+  ) || [];
+
+  const statusActions = isAdmin()
+    ? `<div class="toolbar">
+        <select id="ticket-status-update">
+          <option value="aberto">Aberto</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="aguardando_retorno">Aguardando retorno</option>
+          <option value="resolvido">Resolvido</option>
+          <option value="fechado">Fechado</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
+      </div>`
+    : '';
+
+  el.detailsContent.innerHTML = `
+    <h2>Chamado ${ticket.numero_chamado || ticket.id}</h2>
+    <p><strong>Loja:</strong> ${ticket.loja?.nome || '-'} | <strong>Caixa:</strong> ${ticket.caixa?.nome || '-'}</p>
+    <p><strong>Tipo:</strong> ${ticket.tipo?.nome || '-'} | <strong>Prioridade:</strong> ${badgePriority(ticket.prioridade)} | <strong>Status:</strong> ${badgeStatus(ticket.status)}</p>
+    <p><strong>Título:</strong> ${ticket.titulo}</p>
+    <p><strong>Descrição:</strong> ${ticket.descricao}</p>
+    <p><strong>Abertura:</strong> ${fmtDate(ticket.created_at)} | <strong>Solicitante:</strong> ${ticket.usuario?.nome || '-'}</p>
+    ${ticket.anexo_url ? `<p><a href="${ticket.anexo_url}" target="_blank">Ver anexo</a></p>` : ''}
+    ${statusActions}
+    <div class="card">
+      <h3>Adicionar observação</h3>
+      <textarea id="obs-text" rows="3" placeholder="Digite uma observação"></textarea>
+      <button id="btn-add-observation" class="btn btn-primary btn-sm" data-id="${ticket.id}">Registrar observação</button>
+    </div>
+    <div class="card">
+      <h3>Histórico</h3>
+      ${history.length ? history.map(h => `
+        <div class="history-item">
+          <strong>${h.acao}</strong> - ${fmtDate(h.created_at)}
+          <div>${h.descricao || ''}</div>
+          <small>Por: ${h.usuario?.nome || 'Sistema'}</small>
+        </div>
+      `).join('') : '<p>Sem histórico.</p>'}
+    </div>
+    <footer class="modal-footer">
+      <button class="btn btn-ghost" id="btn-close-details">Fechar</button>
+    </footer>
+  `;
+
+  if (isAdmin()) {
+    const select = document.getElementById('ticket-status-update');
+    select.value = ticket.status;
+    document.getElementById('btn-change-status').addEventListener('click', async () => {
+      const nextStatus = select.value;
+      await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id));
+      showToast('Status atualizado');
+      await reloadAll();
+      await openTicketDetails(ticket.id);
+      renderView();
+    });
+  }
+
+  document.getElementById('btn-add-observation').addEventListener('click', async () => {
+    const text = document.getElementById('obs-text').value.trim();
+    if (!text) return showToast('Digite a observação', 'error');
+    await safeQuery(sb.rpc('add_ticket_observation', { p_chamado_id: ticket.id, p_texto: text }));
+    showToast('Observação registrada');
+    await openTicketDetails(ticket.id);
+  });
+
+  document.getElementById('btn-close-details').addEventListener('click', () => el.detailsModal.close());
+  el.detailsModal.showModal();
+}
+
+async function reloadAll() {
+  await loadLookups();
+  await fetchTickets();
+}
+
+function setupTicketModal() {
+  document.getElementById('ticket-store').addEventListener('change', (e) => {
+    const storeId = Number(e.target.value);
+    const options = state.lookups.checkouts
+      .filter(c => c.ativo && c.loja_id === storeId)
+      .map(c => `<option value="${c.id}">${c.nome}${c.setor ? ` - ${c.setor}` : ''}</option>`)
+      .join('');
+
+    document.getElementById('ticket-checkout').innerHTML = options || '<option value="">Sem caixas ativos</option>';
+  });
+
+  el.btnOpenTicket.addEventListener('click', () => {
+    const storeSelect = document.getElementById('ticket-store');
+
+    if (!isAdmin() && state.profile.loja_id) {
+      storeSelect.value = String(state.profile.loja_id);
+      storeSelect.dispatchEvent(new Event('change'));
+      storeSelect.setAttribute('disabled', 'disabled');
+    } else {
+      storeSelect.removeAttribute('disabled');
+    }
+
+    el.ticketModal.showModal();
+  });
+
+  document.getElementById('btn-close-ticket').addEventListener('click', () => el.ticketModal.close());
+
+  el.ticketForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const payload = {
+      loja_id: Number(document.getElementById('ticket-store').value),
+      caixa_id: Number(document.getElementById('ticket-checkout').value),
+      tipo_chamado_id: Number(document.getElementById('ticket-type').value),
+      usuario_id: state.profile.id,
+      titulo: document.getElementById('ticket-title').value.trim(),
+      descricao: document.getElementById('ticket-description').value.trim(),
+      prioridade: document.getElementById('ticket-priority').value,
+      anexo_url: document.getElementById('ticket-attachment').value.trim() || null,
+      telefone_retorno: document.getElementById('ticket-phone').value.trim() || null,
+      responsavel_local: document.getElementById('ticket-local-owner').value.trim() || null,
+      status: 'aberto'
+    };
+
+    if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
+      return showToast('Preencha os campos obrigatórios', 'error');
+    }
+
+    const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
+    if (!inserted) return;
+
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
+    el.ticketForm.reset();
+    el.ticketModal.close();
+    await reloadAll();
+    renderView();
+  });
+}
+
+function exportCsv() {
+  const header = [
+    'numero_chamado', 'loja', 'caixa', 'tipo', 'titulo', 'prioridade', 'status', 'abertura', 'solicitante'
+  ];
+
+  const lines = state.tickets.map(t => [
+    t.numero_chamado || t.id,
+    t.loja?.nome || '',
+    t.caixa?.nome || '',
+    t.tipo?.nome || '',
+    t.titulo,
+    t.prioridade,
+    t.status,
+    fmtDate(t.created_at),
+    t.usuario?.nome || ''
+  ].map(v => `"${String(v).replaceAll('"', '""')}"`).join(','));
+
+  const csv = [header.join(','), ...lines].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `chamados_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function bootApp(session) {
+  state.session = session;
+  await ensureProfile(session.user);
+
+  if (!state.profile.ativo) {
+    showToast('Usuário inativo. Contate o administrador.', 'error');
+    await sb.auth.signOut();
+    return;
+  }
+
+  el.authView.classList.add('hidden');
+  el.appView.classList.remove('hidden');
+  el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
+
+  await reloadAll();
+  mountMenu();
+  await renderView();
+}
+
+function bootAuth() {
+  document.getElementById('btn-go-register').addEventListener('click', () => {
+    el.loginForm.classList.add('hidden');
+    el.registerForm.classList.remove('hidden');
+  });
+
+  document.getElementById('btn-go-login').addEventListener('click', () => {
+    el.registerForm.classList.add('hidden');
+    el.loginForm.classList.remove('hidden');
+  });
+
+  el.loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) return showToast(error.message, 'error');
+  });
+
+  el.registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    const perfil = document.getElementById('register-role').value;
+    const loja_id = document.getElementById('register-store').value || null;
+
+    const { error } = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          nome,
+          perfil,
+          loja_id: loja_id ? Number(loja_id) : null
+        }
+      }
+    });
+
+    if (error) return showToast(error.message, 'error');
+    showToast('Cadastro criado. Faça login para continuar.');
+    el.registerForm.reset();
+    el.registerForm.classList.add('hidden');
+    el.loginForm.classList.remove('hidden');
+  });
+}
+
+function bindTopActions() {
+  el.btnLogout.addEventListener('click', async () => {
+    await sb.auth.signOut();
+  });
+
+  el.globalSearch.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const number = el.globalSearch.value.trim();
+    if (!number) return;
+
+    const data = await safeQuery(
+      sb.from('chamados').select(`
+        *,
+        loja:lojas(id,nome,codigo),
+        caixa:caixas(id,nome,setor),
+        tipo:tipos_chamado(id,nome),
+        usuario:usuarios(id,nome,email)
+      `).ilike('numero_chamado', `%${number}%`).limit(1)
+    );
+
+    if (!data || !data.length) return showToast('Chamado não encontrado', 'error');
+    await fetchTickets();
+    await openTicketDetails(data[0].id);
+  });
+}
+
+async function init() {
+  if (!window.sb) return;
+
+  bootAuth();
+  bindTopActions();
+  setupTicketModal();
+
+  await loadLookups();
+
+  const { data } = await sb.auth.getSession();
+  if (data.session) await bootApp(data.session);
+
+  sb.auth.onAuthStateChange(async (_event, session) => {
+    if (session) {
+      await bootApp(session);
+    } else {
+      state.session = null;
+      state.profile = null;
+      el.appView.classList.add('hidden');
+      el.authView.classList.remove('hidden');
+      el.loginForm.classList.remove('hidden');
+      el.registerForm.classList.add('hidden');
+    }
+  });
+}
+
+init();
+
