@@ -68,6 +68,19 @@ const el = {
   navOverlay: document.getElementById('nav-overlay')
 };
 
+function showAuthScreen() {
+  setNavOpen(false);
+  el.appView.classList.add('hidden');
+  el.authView.classList.remove('hidden');
+  el.loginForm.classList.remove('hidden');
+  el.registerForm.classList.add('hidden');
+}
+
+function showAppScreen() {
+  el.authView.classList.add('hidden');
+  el.appView.classList.remove('hidden');
+}
+
 function showToast(msg, type = 'ok') {
   const container = document.getElementById('toast-container');
   const node = document.createElement('div');
@@ -266,11 +279,16 @@ function mountMenu() {
     .join('');
 
   el.menuNav.querySelectorAll('button').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       state.currentView = btn.dataset.view;
-      mountMenu();
-      renderView();
       setNavOpen(false);
+      mountMenu();
+      try {
+        await renderView();
+      } catch (error) {
+        console.error(error);
+        showToast('Nao foi possivel abrir esta tela.', 'error');
+      }
     });
   });
 }
@@ -1552,8 +1570,7 @@ async function bootApp(session) {
     return;
   }
 
-  el.authView.classList.add('hidden');
-  el.appView.classList.remove('hidden');
+  showAppScreen();
   el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
   if (el.btnAdminQuick) {
     el.btnAdminQuick.classList.toggle('hidden', !isAdmin());
@@ -1678,22 +1695,26 @@ async function init() {
   bindTopActions();
   setupTicketModal();
 
+  el.authView.classList.add('hidden');
+  el.appView.classList.add('hidden');
   await loadLookups();
 
   const { data } = await sb.auth.getSession();
-  if (data.session) await bootApp(data.session);
+  if (data.session) {
+    await bootApp(data.session);
+  } else {
+    showAuthScreen();
+  }
 
-  sb.auth.onAuthStateChange(async (_event, session) => {
-    if (session) {
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'INITIAL_SESSION') return;
+
+    if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')) {
       await bootApp(session);
     } else {
       state.session = null;
       state.profile = null;
-      setNavOpen(false);
-      el.appView.classList.add('hidden');
-      el.authView.classList.remove('hidden');
-      el.loginForm.classList.remove('hidden');
-      el.registerForm.classList.add('hidden');
+      showAuthScreen();
     }
   });
 }
