@@ -85,13 +85,15 @@
       <header class="topbar">
         <div class="topbar-left">
           <button id="btn-nav-toggle" class="btn btn-ghost btn-sm" type="button">Menu</button>
-          <div>
-          <h1 id="view-title">Dashboard</h1>
-          <p id="user-info"></p>
+          <div class="topbar-title-group">
+            <h1 id="view-title">Dashboard</h1>
+            <p id="user-info"></p>
           </div>
         </div>
         <div class="topbar-actions">
-          <input id="global-search" placeholder="Buscar por número do chamado" />
+          <div class="search-shell">
+            <input id="global-search" placeholder="Buscar por número do chamado" />
+          </div>
           <button id="btn-open-ticket" class="btn btn-primary">Novo chamado</button>
         </div>
       </header>

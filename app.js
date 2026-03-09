@@ -9,9 +9,20 @@
     types: [],
     users: []
   },
+  allTickets: [],
   tickets: [],
   charts: {},
   adminUi: {
+    tickets: {
+      tab: 'active',
+      filters: {
+        store: '',
+        checkout: '',
+        type: '',
+        status: '',
+        priority: ''
+      }
+    },
     stores: { search: '', status: '', sort: 'name_asc', editingId: null },
     types: { search: '', status: '', sort: 'name_asc', editingId: null }
   }
@@ -90,6 +101,10 @@ function badgePriority(p) {
 
 function badgeActive(active) {
   return `<span class="badge ${active ? 'b-ativo' : 'b-inativo'}">${active ? 'Ativo' : 'Inativo'}</span>`;
+}
+
+function isCompletedStatus(status) {
+  return ['resolvido', 'fechado', 'cancelado'].includes(status);
 }
 
 function normalizeText(value) {
@@ -261,7 +276,6 @@ function mountMenu() {
 }
 
 async function fetchTickets(filters = {}) {
-  const { checkout_name, ...dbFilters } = filters;
   let query = sb.from('chamados').select(`
     *,
     loja:lojas(id,nome,codigo),
@@ -270,21 +284,33 @@ async function fetchTickets(filters = {}) {
     usuario:usuarios(id,nome,email)
   `).order('created_at', { ascending: false });
 
-  Object.entries(dbFilters).forEach(([k, v]) => {
-    if (v !== null && v !== undefined && v !== '') query = query.eq(k, v);
-  });
-
   const data = await safeQuery(query);
-  let rows = data || [];
-  if (checkout_name) {
-    rows = rows.filter(t => normalizeText(t.caixa?.nome) === normalizeText(checkout_name));
-  }
+  const rows = data || [];
+  state.allTickets = rows;
   state.tickets = rows;
   return state.tickets;
 }
 
+function getTicketRowsForView() {
+  const source = state.allTickets.length ? state.allTickets : state.tickets;
+  const ticketUi = state.adminUi.tickets;
+  const isHistoryTab = ticketUi.tab === 'history';
+
+  return source.filter(ticket => {
+    if (isHistoryTab && !isCompletedStatus(ticket.status)) return false;
+    if (!isHistoryTab && isCompletedStatus(ticket.status)) return false;
+    if (ticketUi.filters.store && String(ticket.loja?.id || '') !== String(ticketUi.filters.store)) return false;
+    if (ticketUi.filters.checkout && normalizeText(ticket.caixa?.nome) !== normalizeText(ticketUi.filters.checkout)) return false;
+    if (ticketUi.filters.type && String(ticket.tipo?.id || '') !== String(ticketUi.filters.type)) return false;
+    if (ticketUi.filters.status && ticket.status !== ticketUi.filters.status) return false;
+    if (ticketUi.filters.priority && ticket.prioridade !== ticketUi.filters.priority) return false;
+    return true;
+  });
+}
+
 function renderDashboard() {
-  const all = state.tickets;
+  const all = state.allTickets.length ? state.allTickets : state.tickets;
+  const activeTickets = all.filter(x => !isCompletedStatus(x.status));
   const kpi = {
     aberto: all.filter(x => x.status === 'aberto').length,
     andamento: all.filter(x => x.status === 'em_andamento').length,
@@ -300,7 +326,7 @@ function renderDashboard() {
     .filter(t => t.ativo)
     .map(t => `<option value="${t.id}">${t.nome}</option>`)
     .join('');
-  const recent = all.slice(0, 8);
+  const recent = activeTickets.slice(0, 8);
 
   el.content.innerHTML = `
     <article class="cards-grid dashboard-kpis">
@@ -363,7 +389,12 @@ function renderDashboard() {
 
       <aside class="recent-column">
         <article class="card">
-          <h3>Chamados recentes</h3>
+          <div class="card-title-row">
+            <div>
+              <h3>Chamados recentes</h3>
+              <p>Exibe apenas chamados ainda em andamento no sistema.</p>
+            </div>
+          </div>
           <div class="recent-list">
             ${recent.length ? recent.map(r => `
               <button class="recent-ticket" data-action="open" data-id="${r.id}">
@@ -467,7 +498,7 @@ function ticketTable(rows) {
         </tr>
       </thead>
       <tbody>
-        ${rows.map(r => `
+        ${rows.length ? rows.map(r => `
           <tr>
             <td>${r.numero_chamado || r.id}</td>
             <td>${r.loja?.nome || '-'}</td>
@@ -482,56 +513,116 @@ function ticketTable(rows) {
               <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
             </td>
           </tr>
-        `).join('')}
+        `).join('') : '<tr><td colspan="10">Nenhum chamado encontrado.</td></tr>'}
       </tbody>
     </table>
   `;
 }
 
 function renderTicketView() {
+  const ticketUi = state.adminUi.tickets;
+  const isHistoryTab = ticketUi.tab === 'history';
   const stores = ['<option value="">Todas as lojas</option>'].concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`)).join('');
   const checkoutNames = [...new Set(state.lookups.checkouts.map(c => c.nome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const checkouts = ['<option value="">Todos os equipamentos/setor</option>'].concat(checkoutNames.map(name => `<option value="${name}">${name}</option>`)).join('');
   const types = ['<option value="">Todos os tipos</option>'].concat(state.lookups.types.map(t => `<option value="${t.id}">${t.nome}</option>`)).join('');
+  const statusOptions = isHistoryTab
+    ? `
+      <option value="">Todos os status do histórico</option>
+      <option value="resolvido" ${ticketUi.filters.status === 'resolvido' ? 'selected' : ''}>Resolvido</option>
+      <option value="fechado" ${ticketUi.filters.status === 'fechado' ? 'selected' : ''}>Fechado</option>
+      <option value="cancelado" ${ticketUi.filters.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+    `
+    : `
+      <option value="">Todos os status ativos</option>
+      <option value="aberto" ${ticketUi.filters.status === 'aberto' ? 'selected' : ''}>Aberto</option>
+      <option value="em_andamento" ${ticketUi.filters.status === 'em_andamento' ? 'selected' : ''}>Em andamento</option>
+      <option value="aguardando_retorno" ${ticketUi.filters.status === 'aguardando_retorno' ? 'selected' : ''}>Aguardando retorno</option>
+    `;
+  const visibleRows = getTicketRowsForView();
 
   el.content.innerHTML = `
     <article class="card">
+      <div class="card-title-row">
+        <div>
+          <h3>Chamados</h3>
+          <p>${isHistoryTab ? 'Registro de chamados concluídos.' : 'Acompanhe apenas chamados ativos e em progresso.'}</p>
+        </div>
+      </div>
+      <div class="ticket-tabs">
+        <button class="ticket-tab ${!isHistoryTab ? 'active' : ''}" id="btn-tab-active" type="button">Chamados em aberto</button>
+        <button class="ticket-tab ${isHistoryTab ? 'active' : ''}" id="btn-tab-history" type="button">Histórico</button>
+      </div>
       <div class="filters">
         <select id="f-store">${stores}</select>
         <select id="f-checkout">${checkouts}</select>
         <select id="f-type">${types}</select>
         <select id="f-status">
-          <option value="">Todos os status</option>
-          <option value="aberto">Aberto</option>
-          <option value="em_andamento">Em andamento</option>
-          <option value="aguardando_retorno">Aguardando retorno</option>
-          <option value="resolvido">Resolvido</option>
-          <option value="fechado">Fechado</option>
-          <option value="cancelado">Cancelado</option>
+          ${statusOptions}
         </select>
         <select id="f-priority">
           <option value="">Todas prioridades</option>
-          <option value="baixa">Baixa</option>
-          <option value="media">Média</option>
-          <option value="alta">Alta</option>
-          <option value="critica">Crítica</option>
+          <option value="baixa" ${ticketUi.filters.priority === 'baixa' ? 'selected' : ''}>Baixa</option>
+          <option value="media" ${ticketUi.filters.priority === 'media' ? 'selected' : ''}>Média</option>
+          <option value="alta" ${ticketUi.filters.priority === 'alta' ? 'selected' : ''}>Alta</option>
+          <option value="critica" ${ticketUi.filters.priority === 'critica' ? 'selected' : ''}>Crítica</option>
         </select>
         <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
+        <button id="btn-clear-filters" class="btn btn-ghost btn-sm">Limpar</button>
       </div>
     </article>
     <article class="card table-wrap">
-      ${ticketTable(state.tickets)}
+      ${ticketTable(visibleRows)}
     </article>
   `;
 
-  document.getElementById('btn-apply-filters').addEventListener('click', async () => {
-    await fetchTickets({
-      loja_id: document.getElementById('f-store').value,
-      checkout_name: document.getElementById('f-checkout').value,
-      tipo_chamado_id: document.getElementById('f-type').value,
+  document.getElementById('f-store').value = ticketUi.filters.store;
+  document.getElementById('f-checkout').value = ticketUi.filters.checkout;
+  document.getElementById('f-type').value = ticketUi.filters.type;
+
+  document.getElementById('btn-tab-active').addEventListener('click', () => {
+    state.adminUi.tickets.tab = 'active';
+    state.adminUi.tickets.filters = {
+      store: '',
+      checkout: '',
+      type: '',
+      status: '',
+      priority: ''
+    };
+    renderTicketView();
+  });
+
+  document.getElementById('btn-tab-history').addEventListener('click', () => {
+    state.adminUi.tickets.tab = 'history';
+    state.adminUi.tickets.filters = {
+      store: '',
+      checkout: '',
+      type: '',
+      status: '',
+      priority: ''
+    };
+    renderTicketView();
+  });
+
+  document.getElementById('btn-apply-filters').addEventListener('click', () => {
+    state.adminUi.tickets.filters = {
+      store: document.getElementById('f-store').value,
+      checkout: document.getElementById('f-checkout').value,
+      type: document.getElementById('f-type').value,
       status: document.getElementById('f-status').value,
-      prioridade: document.getElementById('f-priority').value
-    });
+      priority: document.getElementById('f-priority').value
+    };
+    renderTicketView();
+  });
+
+  document.getElementById('btn-clear-filters').addEventListener('click', () => {
+    state.adminUi.tickets.filters = {
+      store: '',
+      checkout: '',
+      type: '',
+      status: '',
+      priority: ''
+    };
     renderTicketView();
   });
 
@@ -1147,8 +1238,25 @@ function bindTicketRowActions() {
 }
 
 async function openTicketDetails(ticketId) {
-  const ticket = state.tickets.find(t => t.id === ticketId);
-  if (!ticket) return;
+  const source = state.allTickets.length ? state.allTickets : state.tickets;
+  let ticket = source.find(t => String(t.id) === String(ticketId));
+
+  if (!ticket) {
+    ticket = await safeQuery(
+      sb.from('chamados').select(`
+        *,
+        loja:lojas(id,nome,codigo),
+        caixa:caixas(id,nome,setor),
+        tipo:tipos_chamado(id,nome),
+        usuario:usuarios(id,nome,email)
+      `).eq('id', ticketId).maybeSingle()
+    );
+  }
+
+  if (!ticket) {
+    showToast('Nao foi possivel carregar os detalhes do chamado', 'error');
+    return;
+  }
 
   const history = await safeQuery(
     sb.from('historico_chamados')
@@ -1158,7 +1266,10 @@ async function openTicketDetails(ticketId) {
   ) || [];
 
   const statusActions = isAdmin()
-    ? `<div class="toolbar">
+    ? `<div class="ticket-progress-panel">
+        <h3>Progresso do chamado</h3>
+        <p>Apenas administradores podem atualizar o andamento. Quando o chamado for concluído, ele aparecerá na aba Histórico.</p>
+        <div class="toolbar">
         <select id="ticket-status-update">
           <option value="aberto">Aberto</option>
           <option value="em_andamento">Em andamento</option>
@@ -1168,6 +1279,7 @@ async function openTicketDetails(ticketId) {
           <option value="cancelado">Cancelado</option>
         </select>
         <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
+        </div>
       </div>`
     : '';
 
@@ -1324,6 +1436,8 @@ function exportCsv() {
 async function bootApp(session) {
   state.session = session;
   await ensureProfile(session.user);
+  state.currentView = 'dashboard';
+  setNavOpen(false);
 
   if (!state.profile.ativo) {
     showToast('Usuário inativo. Contate o administrador.', 'error');
@@ -1388,6 +1502,9 @@ function bootAuth() {
     el.registerForm.reset();
     el.registerForm.classList.add('hidden');
     el.loginForm.classList.remove('hidden');
+    document.getElementById('login-email').value = email;
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-email').focus();
   });
 }
 
@@ -1465,6 +1582,7 @@ async function init() {
     } else {
       state.session = null;
       state.profile = null;
+      setNavOpen(false);
       el.appView.classList.add('hidden');
       el.authView.classList.remove('hidden');
       el.loginForm.classList.remove('hidden');
