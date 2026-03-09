@@ -290,6 +290,7 @@ textarea:disabled {
   align-items: start;
   gap: 18px;
   padding: 18px;
+  overflow: hidden;
   transform: translateX(-108%);
   transition: transform 0.24s ease;
 }
@@ -339,6 +340,10 @@ body.nav-open .sidebar {
   display: grid;
   gap: 10px;
   width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  align-content: start;
 }
 
 .nav-btn {
@@ -372,6 +377,8 @@ body.nav-open .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .nav-overlay {
@@ -1363,6 +1370,10 @@ body.nav-open .nav-overlay {
     width: auto;
     border-radius: 20px;
     padding: 14px;
+  }
+
+  #menu-nav {
+    padding-right: 2px;
   }
 
   .quick-actions {

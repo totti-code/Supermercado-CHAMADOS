@@ -12,6 +12,7 @@
   allTickets: [],
   tickets: [],
   charts: {},
+  isSigningOut: false,
   adminUi: {
     tickets: {
       tab: 'active',
@@ -277,20 +278,18 @@ function mountMenu() {
   el.menuNav.innerHTML = state.menu
     .map(item => `<button class="nav-btn ${item.id === state.currentView ? 'active' : ''}" data-view="${item.id}">${item.label}</button>`)
     .join('');
+}
 
-  el.menuNav.querySelectorAll('button').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      state.currentView = btn.dataset.view;
-      setNavOpen(false);
-      mountMenu();
-      try {
-        await renderView();
-      } catch (error) {
-        console.error(error);
-        showToast('Nao foi possivel abrir esta tela.', 'error');
-      }
-    });
-  });
+async function openCurrentView(viewId) {
+  state.currentView = viewId;
+  setNavOpen(false);
+  mountMenu();
+  try {
+    await renderView();
+  } catch (error) {
+    console.error(error);
+    showToast('Nao foi possivel abrir esta tela.', 'error');
+  }
 }
 
 async function fetchTickets(filters = {}) {
@@ -1633,6 +1632,14 @@ function bootAuth() {
 }
 
 function bindTopActions() {
+  if (el.menuNav) {
+    el.menuNav.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-view]');
+      if (!btn) return;
+      await openCurrentView(btn.dataset.view);
+    });
+  }
+
   if (el.btnNavToggle) {
     el.btnNavToggle.addEventListener('click', () => {
       const isOpen = document.body.classList.contains('nav-open');
@@ -1649,15 +1656,26 @@ function bindTopActions() {
   }
 
   el.btnLogout.addEventListener('click', async () => {
-    await sb.auth.signOut();
+    if (state.isSigningOut) return;
+    state.isSigningOut = true;
+    el.btnLogout.disabled = true;
+    setNavOpen(false);
+    try {
+      const { error } = await sb.auth.signOut();
+      if (error) {
+        showToast(error.message, 'error');
+        return;
+      }
+    } finally {
+      state.isSigningOut = false;
+      el.btnLogout.disabled = false;
+    }
   });
 
   if (el.btnAdminQuick) {
     el.btnAdminQuick.addEventListener('click', async () => {
       if (!isAdmin()) return showToast('Acesso restrito para administradores.', 'error');
-      state.currentView = 'stores';
-      mountMenu();
-      await renderView();
+      await openCurrentView('stores');
     });
   }
 
@@ -1714,6 +1732,8 @@ async function init() {
     } else {
       state.session = null;
       state.profile = null;
+      state.isSigningOut = false;
+      el.btnLogout.disabled = false;
       showAuthScreen();
     }
   });
