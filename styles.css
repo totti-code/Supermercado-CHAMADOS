@@ -727,6 +727,150 @@ body.nav-open .nav-overlay {
   gap: 10px;
 }
 
+.entity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.entity-grid-admin {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.entity-grid-report {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.entity-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  min-height: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(129, 168, 224, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%),
+    rgba(10, 18, 31, 0.9);
+  box-shadow: var(--shadow-sm);
+}
+
+.entity-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.entity-card-head h4 {
+  margin: 4px 0 6px;
+  font-size: 1.03rem;
+  color: #f5f9ff;
+}
+
+.entity-card-head p {
+  margin: 0;
+  color: #b9cae6;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.entity-card-kicker {
+  display: inline-block;
+  color: #8cb4ec;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.entity-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.entity-card-content {
+  display: grid;
+  gap: 12px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.info-item {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  min-width: 0;
+}
+
+.info-item span {
+  color: #88a2c9;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-item strong {
+  color: #edf4ff;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.entity-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.entity-card-actions .btn {
+  flex: 1 1 140px;
+  max-width: 100%;
+}
+
+.entity-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 24px;
+  text-align: center;
+  border-radius: 20px;
+  border: 1px dashed rgba(129, 168, 224, 0.22);
+  background: rgba(10, 18, 31, 0.62);
+}
+
+.entity-empty h4 {
+  margin: 0;
+  color: #f4f8ff;
+}
+
+.entity-empty p {
+  margin: 0;
+  color: #a8bddf;
+  max-width: 460px;
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
 .ticket-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1004,6 +1148,12 @@ body.nav-open .nav-overlay {
   gap: 8px;
 }
 
+.entity-card .badge,
+.entity-card .b-ativo,
+.entity-card .b-inativo {
+  align-self: flex-start;
+}
+
 @media (min-width: 1380px) {
   .topbar,
   .card {
@@ -1023,6 +1173,10 @@ body.nav-open .nav-overlay {
 
   .recent-column {
     order: 2;
+  }
+
+  .settings-shell {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1075,6 +1229,16 @@ body.nav-open .nav-overlay {
   .admin-form-actions .btn,
   .modal-footer .btn {
     flex: 1 1 180px;
+  }
+
+  .entity-grid,
+  .entity-grid-admin,
+  .entity-grid-report {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+
+  .settings-shell {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1149,6 +1313,31 @@ body.nav-open .nav-overlay {
     min-width: 760px;
   }
 
+  .entity-card {
+    padding: 14px;
+  }
+
+  .entity-card-head {
+    flex-direction: column;
+  }
+
+  .entity-card-badges {
+    justify-content: flex-start;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entity-card-actions {
+    flex-direction: column;
+  }
+
+  .entity-card-actions .btn {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+
   #toast-container {
     left: 12px;
     right: 12px;
@@ -1189,6 +1378,12 @@ body.nav-open .nav-overlay {
   }
 
   .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entity-grid,
+  .entity-grid-admin,
+  .entity-grid-report {
     grid-template-columns: 1fr;
   }
 

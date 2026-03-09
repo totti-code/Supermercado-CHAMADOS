@@ -489,33 +489,87 @@ function buildChart(id, label, labels, values) {
 }
 
 function ticketTable(rows) {
+  return renderCollectionCards({
+    rows,
+    emptyTitle: 'Nenhum chamado encontrado.',
+    emptyText: 'Ajuste os filtros ou cadastre um novo chamado para visualizar itens aqui.',
+    render: r => `
+      <article class="entity-card entity-card-ticket">
+        <header class="entity-card-head">
+          <div>
+            <small class="entity-card-kicker">Chamado #${r.numero_chamado || r.id}</small>
+            <h4>${r.titulo}</h4>
+            <p>${r.loja?.nome || '-'} • ${r.caixa?.nome || '-'} • ${r.tipo?.nome || '-'}</p>
+          </div>
+          <div class="entity-card-badges">
+            ${badgePriority(r.prioridade)}
+            ${badgeStatus(r.status)}
+          </div>
+        </header>
+        <div class="entity-card-content">
+          ${renderInfoGrid([
+            ['Solicitante', r.usuario?.nome || '-'],
+            ['Abertura', fmtDate(r.created_at)]
+          ])}
+        </div>
+        <footer class="entity-card-actions">
+          <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
+        </footer>
+      </article>
+    `
+  });
+}
+
+function renderInfoGrid(items) {
   return `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Nº</th><th>Loja</th><th>Equipamentos/Setor</th><th>Tipo</th><th>Título</th>
-          <th>Prioridade</th><th>Status</th><th>Abertura</th><th>Solicitante</th><th>Ações</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.length ? rows.map(r => `
-          <tr>
-            <td>${r.numero_chamado || r.id}</td>
-            <td>${r.loja?.nome || '-'}</td>
-            <td>${r.caixa?.nome || '-'}</td>
-            <td>${r.tipo?.nome || '-'}</td>
-            <td>${r.titulo}</td>
-            <td>${badgePriority(r.prioridade)}</td>
-            <td>${badgeStatus(r.status)}</td>
-            <td>${fmtDate(r.created_at)}</td>
-            <td>${r.usuario?.nome || '-'}</td>
-            <td>
-              <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
-            </td>
-          </tr>
-        `).join('') : '<tr><td colspan="10">Nenhum chamado encontrado.</td></tr>'}
-      </tbody>
-    </table>
+    <div class="info-grid">
+      ${items.map(([label, value]) => `
+        <div class="info-item">
+          <span>${label}</span>
+          <strong>${value ?? '-'}</strong>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderCollectionCards({ rows, emptyTitle, emptyText, render, className = '' }) {
+  if (!rows.length) {
+    return `
+      <div class="entity-empty">
+        <h4>${emptyTitle}</h4>
+        <p>${emptyText}</p>
+      </div>
+    `;
+  }
+
+  return `<div class="entity-grid ${className}">${rows.map(render).join('')}</div>`;
+}
+
+function renderEntityCard({
+  kicker,
+  title,
+  description,
+  badges = '',
+  details = [],
+  actions = '',
+  className = ''
+}) {
+  return `
+    <article class="entity-card ${className}">
+      <header class="entity-card-head">
+        <div>
+          ${kicker ? `<small class="entity-card-kicker">${kicker}</small>` : ''}
+          <h4>${title}</h4>
+          ${description ? `<p>${description}</p>` : ''}
+        </div>
+        ${badges ? `<div class="entity-card-badges">${badges}</div>` : ''}
+      </header>
+      <div class="entity-card-content">
+        ${details.length ? renderInfoGrid(details) : ''}
+      </div>
+      ${actions ? `<footer class="entity-card-actions">${actions}</footer>` : ''}
+    </article>
   `;
 }
 
@@ -630,29 +684,39 @@ function renderTicketView() {
 }
 
 function adminEntityView(title, id, rows, columns, actions) {
-  const headers = columns.map(c => `<th>${c.label}</th>`).join('');
-  const body = rows.map(row => `
-    <tr>
-      ${columns.map(c => `<td>${typeof c.render === 'function' ? c.render(row) : row[c.key] ?? '-'}</td>`).join('')}
-      <td>
-        <button class="btn btn-sm btn-ghost" data-entity="${id}" data-action="edit" data-id="${row.id}">Editar</button>
-        <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">Excluir/Inativar</button>
-      </td>
-    </tr>
-  `).join('');
-
   el.content.innerHTML = `
     <article class="card">
-      <div class="toolbar">
-        <h3>${title}</h3>
+      <div class="card-title-row">
+        <div>
+          <h3>${title}</h3>
+          <p>Gerencie os registros em cards verticais com ações rápidas no final de cada item.</p>
+        </div>
         <button class="btn btn-primary btn-sm" id="btn-create-${id}">Novo</button>
       </div>
     </article>
-    <article class="card table-wrap">
-      <table class="table">
-        <thead><tr>${headers}<th>Ações</th></tr></thead>
-        <tbody>${body}</tbody>
-      </table>
+    <article class="card">
+      ${renderCollectionCards({
+        rows,
+        emptyTitle: `Nenhum registro em ${title.toLowerCase()}.`,
+        emptyText: 'Use o botão Novo para criar o primeiro item.',
+        render: row => renderEntityCard({
+          kicker: `ID ${row.id}`,
+          title: row.nome || row.email || row.id,
+          description: columns.find(c => c.key !== 'nome' && c.key !== 'email' && c.key !== 'id')
+            ? columns.find(c => c.key !== 'nome' && c.key !== 'email' && c.key !== 'id').render
+              ? columns.find(c => c.key !== 'nome' && c.key !== 'email' && c.key !== 'id').render(row)
+              : (row[columns.find(c => c.key !== 'nome' && c.key !== 'email' && c.key !== 'id').key] ?? '-')
+            : '',
+          details: columns
+            .filter(c => !['nome', 'email'].includes(c.key))
+            .map(c => [c.label, typeof c.render === 'function' ? c.render(row) : (row[c.key] ?? '-')]),
+          actions: `
+            <button class="btn btn-sm btn-ghost" data-entity="${id}" data-action="edit" data-id="${row.id}">Editar</button>
+            <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">Excluir/Inativar</button>
+          `
+        }),
+        className: 'entity-grid-admin'
+      })}
     </article>
   `;
 
@@ -700,6 +764,12 @@ function renderStores() {
     </article>
 
     <article class="card admin-card">
+      <div class="card-title-row">
+        <div>
+          <h3>Lojas cadastradas</h3>
+          <p>Visualização em cards com status, metadados e ações agrupadas.</p>
+        </div>
+      </div>
       <div class="filters filters-admin">
         <input id="stores-search" placeholder="Buscar por nome" value="${ui.search}" />
         <select id="stores-status">
@@ -715,29 +785,29 @@ function renderStores() {
         </select>
         <button id="btn-stores-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
       </div>
-      <div class="table-wrap admin-table-wrap">
-        <table class="table">
-          <thead>
-            <tr><th>ID</th><th>Nome da loja</th><th>Código</th><th>Status</th><th>Data de cadastro</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            ${rows.length ? rows.map(row => `
-              <tr>
-                <td>${row.id}</td>
-                <td>${row.nome}</td>
-                <td>${row.codigo}</td>
-                <td>${badgeActive(row.ativo)}</td>
-                <td>${fmtDate(row.created_at)}</td>
-                <td class="actions-cell">
-                  <button class="btn btn-sm btn-ghost" data-store-action="edit" data-id="${row.id}">Editar</button>
-                  <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-store-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
-                  <button class="btn btn-sm btn-danger" data-store-action="delete" data-id="${row.id}">Excluir</button>
-                </td>
-              </tr>
-            `).join('') : '<tr><td colspan="6">Nenhuma loja encontrada para os filtros aplicados.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      ${renderCollectionCards({
+        rows,
+        emptyTitle: 'Nenhuma loja encontrada.',
+        emptyText: 'Ajuste os filtros ou cadastre uma nova loja.',
+        render: row => renderEntityCard({
+          kicker: `Loja #${row.id}`,
+          title: row.nome,
+          description: `Código ${row.codigo}`,
+          badges: badgeActive(row.ativo),
+          details: [
+            ['Código', row.codigo],
+            ['Cadastro', fmtDate(row.created_at)],
+            ['Observação', row.observacao || '-']
+          ],
+          actions: `
+            <button class="btn btn-sm btn-ghost" data-store-action="edit" data-id="${row.id}">Editar</button>
+            <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-store-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
+            <button class="btn btn-sm btn-danger" data-store-action="delete" data-id="${row.id}">Excluir</button>
+          `,
+          className: 'entity-card-admin'
+        }),
+        className: 'entity-grid-admin'
+      })}
     </article>
   `;
 
@@ -946,6 +1016,12 @@ function renderTypes() {
     </article>
 
     <article class="card admin-card">
+      <div class="card-title-row">
+        <div>
+          <h3>Tipos cadastrados</h3>
+          <p>Todos os tipos ficam organizados em cards com status e descrição.</p>
+        </div>
+      </div>
       <div class="filters filters-admin">
         <input id="types-search" placeholder="Buscar por nome" value="${ui.search}" />
         <select id="types-status">
@@ -961,29 +1037,28 @@ function renderTypes() {
         </select>
         <button id="btn-types-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
       </div>
-      <div class="table-wrap admin-table-wrap">
-        <table class="table">
-          <thead>
-            <tr><th>ID</th><th>Nome do tipo</th><th>Descrição</th><th>Status</th><th>Data de cadastro</th><th>Ações</th></tr>
-          </thead>
-          <tbody>
-            ${rows.length ? rows.map(row => `
-              <tr>
-                <td>${row.id}</td>
-                <td>${row.nome}</td>
-                <td>${row.descricao || '-'}</td>
-                <td>${badgeActive(row.ativo)}</td>
-                <td>${fmtDate(row.created_at)}</td>
-                <td class="actions-cell">
-                  <button class="btn btn-sm btn-ghost" data-type-action="edit" data-id="${row.id}">Editar</button>
-                  <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-type-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
-                  <button class="btn btn-sm btn-danger" data-type-action="delete" data-id="${row.id}">Excluir</button>
-                </td>
-              </tr>
-            `).join('') : '<tr><td colspan="6">Nenhum tipo encontrado para os filtros aplicados.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      ${renderCollectionCards({
+        rows,
+        emptyTitle: 'Nenhum tipo encontrado.',
+        emptyText: 'Ajuste os filtros ou crie um novo tipo de chamado.',
+        render: row => renderEntityCard({
+          kicker: `Tipo #${row.id}`,
+          title: row.nome,
+          description: row.descricao || 'Sem descrição adicional.',
+          badges: badgeActive(row.ativo),
+          details: [
+            ['Descrição', row.descricao || '-'],
+            ['Cadastro', fmtDate(row.created_at)]
+          ],
+          actions: `
+            <button class="btn btn-sm btn-ghost" data-type-action="edit" data-id="${row.id}">Editar</button>
+            <button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-type-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>
+            <button class="btn btn-sm btn-danger" data-type-action="delete" data-id="${row.id}">Excluir</button>
+          `,
+          className: 'entity-card-admin'
+        }),
+        className: 'entity-grid-admin'
+      })}
     </article>
   `;
 
@@ -1164,24 +1239,34 @@ function renderUsers() {
 }
 
 function renderReports() {
+  const source = state.allTickets.length ? state.allTickets : state.tickets;
   const totalPorLoja = state.lookups.stores.map(s => ({
     loja: s.nome,
-    total: state.tickets.filter(t => t.loja_id === s.id).length
+    total: source.filter(t => t.loja_id === s.id).length
   }));
 
   el.content.innerHTML = `
     <article class="card">
-      <h3>Relatórios</h3>
-      <p>Resumo por loja e exportação CSV (Excel).</p>
-      <button id="btn-export-csv" class="btn btn-primary btn-sm">Exportar chamados (CSV)</button>
-    </article>
-    <article class="card table-wrap">
-      <table class="table">
-        <thead><tr><th>Loja</th><th>Total de chamados</th></tr></thead>
-        <tbody>
-          ${totalPorLoja.map(x => `<tr><td>${x.loja}</td><td>${x.total}</td></tr>`).join('')}
-        </tbody>
-      </table>
+      <div class="card-title-row">
+        <div>
+          <h3>Relatórios</h3>
+          <p>Resumo por loja e exportação CSV em cards verticais.</p>
+        </div>
+        <button id="btn-export-csv" class="btn btn-primary btn-sm">Exportar chamados (CSV)</button>
+      </div>
+      ${renderCollectionCards({
+        rows: totalPorLoja,
+        emptyTitle: 'Sem dados para relatório.',
+        emptyText: 'Cadastre chamados para visualizar o resumo por loja.',
+        render: x => renderEntityCard({
+          kicker: 'Resumo por loja',
+          title: x.loja,
+          description: `${x.total} chamado(s) registrados`,
+          details: [['Total de chamados', String(x.total)]],
+          className: 'entity-card-report'
+        }),
+        className: 'entity-grid-report'
+      })}
     </article>
   `;
 
@@ -1191,21 +1276,43 @@ function renderReports() {
 function renderSettings() {
   const user = state.profile;
   el.content.innerHTML = `
-    <article class="card">
-      <h3>Configurações</h3>
-      <div class="grid-2">
-        <label>Nome
-          <input id="settings-name" value="${user?.nome || ''}" />
-        </label>
-        <label>Email
-          <input value="${user?.email || ''}" disabled />
-        </label>
+    <article class="card admin-card">
+      <div class="card-title-row">
+        <div>
+          <h3>Configurações</h3>
+          <p>Atualize os dados principais do seu perfil em um card único e responsivo.</p>
+        </div>
       </div>
-      <button id="btn-save-settings" class="btn btn-primary btn-sm">Salvar</button>
+      <div class="settings-shell">
+        <div class="settings-summary entity-card">
+          <header class="entity-card-head">
+            <div>
+              <small class="entity-card-kicker">Perfil atual</small>
+              <h4>${user?.nome || '-'}</h4>
+              <p>${user?.perfil || '-'} • ${user?.email || '-'}</p>
+            </div>
+            <div class="entity-card-badges">${badgeActive(user?.ativo)}</div>
+          </header>
+        </div>
+        <form class="admin-form" id="settings-form">
+          <div class="grid-2">
+            <label>Nome
+              <input id="settings-name" value="${user?.nome || ''}" />
+            </label>
+            <label>Email
+              <input value="${user?.email || ''}" disabled />
+            </label>
+          </div>
+          <footer class="admin-form-actions">
+            <button id="btn-save-settings" type="submit" class="btn btn-primary btn-sm">Salvar</button>
+          </footer>
+        </form>
+      </div>
     </article>
   `;
 
-  document.getElementById('btn-save-settings').addEventListener('click', async () => {
+  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
     const nome = document.getElementById('settings-name').value.trim();
     if (!nome) return showToast('Informe o nome', 'error');
     await safeQuery(sb.from('usuarios').update({ nome }).eq('id', state.profile.id));
