@@ -1383,6 +1383,15 @@ body.nav-open .nav-overlay {
 }
 
 @media (max-width: 720px) {
+  :root {
+    --btn-height: 40px;
+    --btn-height-sm: 34px;
+    --btn-padding-x: 13px;
+    --btn-padding-x-sm: 10px;
+    --btn-font-size: 0.88rem;
+    --btn-font-size-sm: 0.78rem;
+  }
+
   .auth-shell {
     padding: 16px;
   }
@@ -1534,7 +1543,8 @@ body.nav-open .nav-overlay {
   }
 
   .quick-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   #view-title {
@@ -1572,16 +1582,16 @@ body.nav-open .nav-overlay {
   select,
   textarea,
   .btn {
-    font-size: 0.95rem;
+    font-size: 0.88rem;
   }
 
   :root {
-    --btn-height: 42px;
-    --btn-height-sm: 36px;
-    --btn-padding-x: 14px;
-    --btn-padding-x-sm: 11px;
-    --btn-font-size: 0.92rem;
-    --btn-font-size-sm: 0.81rem;
+    --btn-height: 36px;
+    --btn-height-sm: 32px;
+    --btn-padding-x: 11px;
+    --btn-padding-x-sm: 8px;
+    --btn-font-size: 0.83rem;
+    --btn-font-size-sm: 0.74rem;
   }
 
   .modal {
@@ -1613,6 +1623,18 @@ body.nav-open .nav-overlay {
   #btn-nav-toggle,
   #btn-open-ticket {
     width: 100%;
+  }
+
+  .topbar-actions {
+    gap: 8px;
+  }
+
+  .topbar-actions .btn,
+  .modal-footer .btn,
+  .admin-form-actions .btn,
+  .quick-actions .btn {
+    padding-top: 6px;
+    padding-bottom: 6px;
   }
 }
 
