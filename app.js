@@ -418,6 +418,7 @@ function getTicketRowsForView() {
 function renderDashboard() {
   const all = state.allTickets.length ? state.allTickets : state.tickets;
   const activeTickets = all.filter(x => !isCompletedStatus(x.status));
+  const canCreateTickets = !isAdmin();
   const kpi = {
     aberto: all.filter(x => x.status === 'aberto').length,
     andamento: all.filter(x => x.status === 'em_andamento').length,
@@ -444,55 +445,74 @@ function renderDashboard() {
     </article>
 
     <section class="dashboard-main">
-      <article class="card ticket-form-card">
-        <div class="card-title-row">
-          <h3>Abrir chamado</h3>
-          <button id="btn-ticket-examples" class="btn btn-ghost btn-sm" type="button">Gerar exemplos</button>
-        </div>
-        <form id="quick-ticket-form" class="form-grid">
-          <div class="grid-2">
-            <label>Título*
-              <input id="quick-ticket-title" required maxlength="120" placeholder="Ex: Impressora térmica não imprime" />
-            </label>
-            <label>Solicitante
-              <input value="${state.profile?.nome || '-'}" disabled />
-            </label>
+      ${canCreateTickets ? `
+        <article class="card ticket-form-card">
+          <div class="card-title-row">
+            <h3>Abrir chamado</h3>
+            <button id="btn-ticket-examples" class="btn btn-ghost btn-sm" type="button">Gerar exemplos</button>
           </div>
-          <label>Descrição detalhada*
-            <textarea id="quick-ticket-description" rows="4" required placeholder="Descreva o problema, impacto e desde quando ocorre..."></textarea>
-          </label>
-          <div class="grid-2">
-            <label>Filial*
-              <select id="quick-ticket-store" required>${stores}</select>
+          <form id="quick-ticket-form" class="form-grid">
+            <div class="grid-2">
+              <label>Título*
+                <input id="quick-ticket-title" required maxlength="120" placeholder="Ex: Impressora térmica não imprime" />
+              </label>
+              <label>Solicitante
+                <input value="${state.profile?.nome || '-'}" disabled />
+              </label>
+            </div>
+            <label>Descrição detalhada*
+              <textarea id="quick-ticket-description" rows="4" required placeholder="Descreva o problema, impacto e desde quando ocorre..."></textarea>
             </label>
-            <label>Equipamentos/Setor*
-              <select id="quick-ticket-checkout" required></select>
-            </label>
+            <div class="grid-2">
+              <label>Filial*
+                <select id="quick-ticket-store" required>${stores}</select>
+              </label>
+              <label>Equipamentos/Setor*
+                <select id="quick-ticket-checkout" required></select>
+              </label>
+            </div>
+            <div class="grid-3">
+              <label>Tipo de chamado*
+                <select id="quick-ticket-type" required>${types}</select>
+              </label>
+              <label>Prioridade*
+                <select id="quick-ticket-priority" required>
+                  <option value="baixa">Baixa</option>
+                  <option value="media" selected>Média</option>
+                  <option value="alta">Alta</option>
+                  <option value="critica">Crítica</option>
+                </select>
+              </label>
+              <label>Status
+                <select id="quick-ticket-status" disabled>
+                  <option value="aberto" selected>Aberto</option>
+                </select>
+              </label>
+            </div>
+            <footer class="admin-form-actions">
+              <button type="submit" class="btn btn-primary btn-sm">Salvar chamado</button>
+              <button type="button" id="btn-open-ticket-modal" class="btn btn-ghost btn-sm">Modo completo</button>
+            </footer>
+          </form>
+        </article>
+      ` : `
+        <article class="card ticket-form-card">
+          <div class="card-title-row">
+            <div>
+              <h3>Painel administrativo</h3>
+              <p>Administradores apenas visualizam, acompanham e alteram chamados existentes.</p>
+            </div>
           </div>
-          <div class="grid-3">
-            <label>Tipo de chamado*
-              <select id="quick-ticket-type" required>${types}</select>
-            </label>
-            <label>Prioridade*
-              <select id="quick-ticket-priority" required>
-                <option value="baixa">Baixa</option>
-                <option value="media" selected>Média</option>
-                <option value="alta">Alta</option>
-                <option value="critica">Crítica</option>
-              </select>
-            </label>
-            <label>Status
-              <select id="quick-ticket-status" disabled>
-                <option value="aberto" selected>Aberto</option>
-              </select>
-            </label>
+          <div class="entity-card entity-card-ticket">
+            <div class="entity-card-content">
+              ${renderInfoGrid([
+                ['Perfil', state.profile?.perfil || '-'],
+                ['Permissão', 'Visualizar e alterar chamados']
+              ])}
+            </div>
           </div>
-          <footer class="admin-form-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Salvar chamado</button>
-            <button type="button" id="btn-open-ticket-modal" class="btn btn-ghost btn-sm">Modo completo</button>
-          </footer>
-        </form>
-      </article>
+        </article>
+      `}
 
       <aside class="recent-column">
         <article class="card">
@@ -522,57 +542,59 @@ function renderDashboard() {
     </section>
   `;
 
-  const storeSelect = document.getElementById('quick-ticket-store');
-  const checkoutSelect = document.getElementById('quick-ticket-checkout');
-  const syncCheckouts = () => {
-    const storeId = Number(storeSelect.value);
-    const options = state.lookups.checkouts
-      .filter(c => c.ativo && c.loja_id === storeId)
-      .map(c => `<option value="${c.id}">${c.nome}${c.setor ? ` - ${c.setor}` : ''}</option>`)
-      .join('');
-    checkoutSelect.innerHTML = options || '<option value="">Sem equipamentos/setor ativos</option>';
-  };
-
-  if (!isAdmin() && state.profile?.loja_id) {
-    storeSelect.value = String(state.profile.loja_id);
-    storeSelect.setAttribute('disabled', 'disabled');
-  }
-  syncCheckouts();
-  storeSelect.addEventListener('change', syncCheckouts);
-
-  document.getElementById('btn-ticket-examples').addEventListener('click', () => {
-    document.getElementById('quick-ticket-title').value = 'PDV sem conexão com a rede';
-    document.getElementById('quick-ticket-description').value = 'O PDV 03 está sem acesso ao sistema desde 09:20. Reinício já realizado sem sucesso.';
-  });
-
-  document.getElementById('quick-ticket-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const payload = {
-      loja_id: Number(storeSelect.value),
-      caixa_id: Number(checkoutSelect.value),
-      tipo_chamado_id: Number(document.getElementById('quick-ticket-type').value),
-      usuario_id: state.profile.id,
-      titulo: document.getElementById('quick-ticket-title').value.trim(),
-      descricao: document.getElementById('quick-ticket-description').value.trim(),
-      prioridade: document.getElementById('quick-ticket-priority').value,
-      anexo_url: null,
-      telefone_retorno: null,
-      responsavel_local: null,
-      status: 'aberto'
+  if (canCreateTickets) {
+    const storeSelect = document.getElementById('quick-ticket-store');
+    const checkoutSelect = document.getElementById('quick-ticket-checkout');
+    const syncCheckouts = () => {
+      const storeId = Number(storeSelect.value);
+      const options = state.lookups.checkouts
+        .filter(c => c.ativo && c.loja_id === storeId)
+        .map(c => `<option value="${c.id}">${c.nome}${c.setor ? ` - ${c.setor}` : ''}</option>`)
+        .join('');
+      checkoutSelect.innerHTML = options || '<option value="">Sem equipamentos/setor ativos</option>';
     };
-    if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
-      return showToast('Preencha os campos obrigatórios', 'error');
-    }
-    const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
-    if (!inserted) return;
-    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
-    await reloadAll();
-    renderDashboard();
-  });
 
-  document.getElementById('btn-open-ticket-modal').addEventListener('click', () => {
-    el.btnOpenTicket.click();
-  });
+    if (state.profile?.loja_id) {
+      storeSelect.value = String(state.profile.loja_id);
+      storeSelect.setAttribute('disabled', 'disabled');
+    }
+    syncCheckouts();
+    storeSelect.addEventListener('change', syncCheckouts);
+
+    document.getElementById('btn-ticket-examples').addEventListener('click', () => {
+      document.getElementById('quick-ticket-title').value = 'PDV sem conexão com a rede';
+      document.getElementById('quick-ticket-description').value = 'O PDV 03 está sem acesso ao sistema desde 09:20. Reinício já realizado sem sucesso.';
+    });
+
+    document.getElementById('quick-ticket-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        loja_id: Number(storeSelect.value),
+        caixa_id: Number(checkoutSelect.value),
+        tipo_chamado_id: Number(document.getElementById('quick-ticket-type').value),
+        usuario_id: state.profile.id,
+        titulo: document.getElementById('quick-ticket-title').value.trim(),
+        descricao: document.getElementById('quick-ticket-description').value.trim(),
+        prioridade: document.getElementById('quick-ticket-priority').value,
+        anexo_url: null,
+        telefone_retorno: null,
+        responsavel_local: null,
+        status: 'aberto'
+      };
+      if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
+        return showToast('Preencha os campos obrigatórios', 'error');
+      }
+      const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
+      if (!inserted) return;
+      showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
+      await reloadAll();
+      renderDashboard();
+    });
+
+    document.getElementById('btn-open-ticket-modal').addEventListener('click', () => {
+      el.btnOpenTicket.click();
+    });
+  }
 
   bindTicketRowActions();
 }
@@ -1661,6 +1683,11 @@ function setupTicketModal() {
   });
 
   el.btnOpenTicket.addEventListener('click', async () => {
+    if (isAdmin()) {
+      showToast('Administradores apenas visualizam e alteram chamados.', 'error');
+      return;
+    }
+
     await syncGlobalCheckoutsAcrossStores();
     const storeSelect = document.getElementById('ticket-store');
 
@@ -1760,6 +1787,9 @@ async function bootApp(session) {
   el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
   if (el.btnAdminQuick) {
     el.btnAdminQuick.classList.toggle('hidden', !isAdmin());
+  }
+  if (el.btnOpenTicket) {
+    el.btnOpenTicket.classList.toggle('hidden', isAdmin());
   }
 
   await reloadAll();
