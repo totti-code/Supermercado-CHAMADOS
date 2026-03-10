@@ -26,6 +26,11 @@
     },
     stores: { search: '', status: '', sort: 'name_asc', editingId: null },
     types: { search: '', status: '', sort: 'name_asc', editingId: null }
+  },
+  mobileFilterPanels: {
+    tickets: false,
+    stores: false,
+    types: false
   }
 };
 
@@ -49,6 +54,7 @@ const MENU_FUNC = [
 const el = {
   authView: document.getElementById('auth-view'),
   appView: document.getElementById('app-view'),
+  sidebar: document.getElementById('sidebar'),
   loginForm: document.getElementById('login-form'),
   registerForm: document.getElementById('register-form'),
   userInfo: document.getElementById('user-info'),
@@ -514,21 +520,130 @@ function isDesktopNav() {
   return window.innerWidth > 980;
 }
 
+function updateNavStateUi() {
+  const desktop = isDesktopNav();
+  const isOpen = desktop || document.body.classList.contains('nav-open');
+
+  document.body.classList.toggle('nav-desktop', desktop);
+  document.body.classList.toggle('nav-mobile-open', !desktop && isOpen);
+
+  if (el.btnNavToggle) {
+    el.btnNavToggle.setAttribute('aria-expanded', String(isOpen));
+    el.btnNavToggle.setAttribute('aria-label', !desktop && isOpen ? 'Fechar menu de navegacao' : 'Abrir menu de navegacao');
+  }
+
+  if (el.navOverlay) {
+    el.navOverlay.setAttribute('aria-hidden', String(!(!desktop && isOpen)));
+  }
+
+  if (el.sidebar) {
+    el.sidebar.setAttribute('aria-hidden', String(!desktop && !isOpen));
+  }
+}
+
 function setNavOpen(open) {
   if (isDesktopNav()) {
     document.body.classList.add('nav-open');
+    updateNavStateUi();
     return;
   }
   document.body.classList.toggle('nav-open', !!open);
+  updateNavStateUi();
 }
 
 function syncMenuState() {
-  document.body.classList.toggle('nav-desktop', isDesktopNav());
   if (isDesktopNav()) {
     document.body.classList.add('nav-open');
   } else {
     document.body.classList.remove('nav-open');
   }
+  updateNavStateUi();
+}
+
+function isMobileViewport() {
+  return window.innerWidth <= 980;
+}
+
+function renderFilterAccordion(panelId, innerHtml, extraClass = '') {
+  const expanded = !isMobileViewport() || !!state.mobileFilterPanels[panelId];
+  const wrapperClass = ['filter-accordion', extraClass, expanded ? 'is-open' : '']
+    .filter(Boolean)
+    .join(' ');
+
+  return `
+    <section class="${wrapperClass}" data-filter-panel="${panelId}">
+      <button
+        type="button"
+        class="filter-accordion-toggle"
+        data-filter-toggle="${panelId}"
+        aria-expanded="${expanded}"
+        aria-controls="filter-panel-${panelId}"
+      >
+        <span>Filtro</span>
+        <span class="filter-accordion-icon" aria-hidden="true"></span>
+      </button>
+      <div
+        id="filter-panel-${panelId}"
+        class="filter-accordion-content"
+        ${expanded ? '' : 'hidden'}
+      >
+        <div class="filter-accordion-inner">
+          ${innerHtml}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function bindFilterAccordions(scope = document) {
+  scope.querySelectorAll('[data-filter-toggle]').forEach(toggle => {
+    if (toggle.dataset.filterBound === 'true') return;
+    toggle.dataset.filterBound = 'true';
+
+    toggle.addEventListener('click', () => {
+      const panelId = toggle.dataset.filterToggle;
+      const wrapper = scope.querySelector(`[data-filter-panel="${panelId}"]`);
+      if (!wrapper || !isMobileViewport()) return;
+
+      const content = wrapper.querySelector('.filter-accordion-content');
+      const willOpen = !wrapper.classList.contains('is-open');
+      wrapper.classList.toggle('is-open', willOpen);
+      toggle.setAttribute('aria-expanded', String(willOpen));
+      state.mobileFilterPanels[panelId] = willOpen;
+
+      if (content) {
+        if (willOpen) {
+          content.hidden = false;
+          requestAnimationFrame(() => {
+            content.style.maxHeight = `${content.scrollHeight}px`;
+          });
+        } else {
+          content.style.maxHeight = `${content.scrollHeight}px`;
+          requestAnimationFrame(() => {
+            content.style.maxHeight = '0px';
+          });
+          window.setTimeout(() => {
+            if (!wrapper.classList.contains('is-open')) {
+              content.hidden = true;
+            }
+          }, 260);
+        }
+      }
+    });
+  });
+
+  scope.querySelectorAll('.filter-accordion').forEach(wrapper => {
+    const panelId = wrapper.dataset.filterPanel;
+    const content = wrapper.querySelector('.filter-accordion-content');
+    const toggle = wrapper.querySelector('[data-filter-toggle]');
+    if (!content || !toggle) return;
+
+    const expanded = !isMobileViewport() || !!state.mobileFilterPanels[panelId];
+    wrapper.classList.toggle('is-open', expanded);
+    toggle.setAttribute('aria-expanded', String(expanded));
+    content.hidden = !expanded;
+    content.style.maxHeight = expanded ? (isMobileViewport() ? `${content.scrollHeight}px` : 'none') : '0px';
+  });
 }
 
 function mountMenu() {
@@ -932,28 +1047,32 @@ function renderTicketView() {
         <button class="ticket-tab ${!isHistoryTab ? 'active' : ''}" id="btn-tab-active" type="button">Chamados em aberto</button>
         <button class="ticket-tab ${isHistoryTab ? 'active' : ''}" id="btn-tab-history" type="button">Histórico</button>
       </div>
-      <div class="filters">
-        <select id="f-store">${stores}</select>
-        <select id="f-checkout">${checkouts}</select>
-        <select id="f-type">${types}</select>
-        <select id="f-status">
-          ${statusOptions}
-        </select>
-        <select id="f-priority">
-          <option value="">Todas prioridades</option>
-          <option value="baixa" ${ticketUi.filters.priority === 'baixa' ? 'selected' : ''}>Baixa</option>
-          <option value="media" ${ticketUi.filters.priority === 'media' ? 'selected' : ''}>Média</option>
-          <option value="alta" ${ticketUi.filters.priority === 'alta' ? 'selected' : ''}>Alta</option>
-          <option value="critica" ${ticketUi.filters.priority === 'critica' ? 'selected' : ''}>Crítica</option>
-        </select>
-        <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
-        <button id="btn-clear-filters" class="btn btn-ghost btn-sm">Limpar</button>
-      </div>
+      ${renderFilterAccordion('tickets', `
+        <div class="filters">
+          <select id="f-store">${stores}</select>
+          <select id="f-checkout">${checkouts}</select>
+          <select id="f-type">${types}</select>
+          <select id="f-status">
+            ${statusOptions}
+          </select>
+          <select id="f-priority">
+            <option value="">Todas prioridades</option>
+            <option value="baixa" ${ticketUi.filters.priority === 'baixa' ? 'selected' : ''}>Baixa</option>
+            <option value="media" ${ticketUi.filters.priority === 'media' ? 'selected' : ''}>Média</option>
+            <option value="alta" ${ticketUi.filters.priority === 'alta' ? 'selected' : ''}>Alta</option>
+            <option value="critica" ${ticketUi.filters.priority === 'critica' ? 'selected' : ''}>Crítica</option>
+          </select>
+          <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
+          <button id="btn-clear-filters" class="btn btn-ghost btn-sm">Limpar</button>
+        </div>
+      `)}
     </article>
     <article class="card table-wrap">
       ${ticketTable(visibleRows)}
     </article>
   `;
+
+  bindFilterAccordions(el.content);
 
   document.getElementById('f-store').value = ticketUi.filters.store;
   document.getElementById('f-checkout').value = ticketUi.filters.checkout;
@@ -1010,7 +1129,7 @@ function renderTicketView() {
 
 function adminEntityView(title, id, rows, columns, actions) {
   el.content.innerHTML = `
-    <article class="card">
+    <article class="card entity-view entity-view-${id}">
       <div class="card-title-row">
         <div>
           <h3>${title}</h3>
@@ -1019,7 +1138,7 @@ function adminEntityView(title, id, rows, columns, actions) {
         <button class="btn btn-primary btn-sm" id="btn-create-${id}">Novo</button>
       </div>
     </article>
-    <article class="card">
+    <article class="card entity-view entity-view-${id}">
       ${renderCollectionCards({
         rows,
         emptyTitle: `Nenhum registro em ${title.toLowerCase()}.`,
@@ -1095,21 +1214,23 @@ function renderStores() {
           <p>Visualização em cards com status, metadados e ações agrupadas.</p>
         </div>
       </div>
-      <div class="filters filters-admin">
-        <input id="stores-search" placeholder="Buscar por nome" value="${ui.search}" />
-        <select id="stores-status">
-          <option value="">Todos os status</option>
-          <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
-          <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
-        </select>
-        <select id="stores-sort">
-          <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
-          <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
-          <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
-          <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
-        </select>
-        <button id="btn-stores-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
-      </div>
+      ${renderFilterAccordion('stores', `
+        <div class="filters filters-admin">
+          <input id="stores-search" placeholder="Buscar por nome" value="${ui.search}" />
+          <select id="stores-status">
+            <option value="">Todos os status</option>
+            <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
+            <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
+          </select>
+          <select id="stores-sort">
+            <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
+            <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
+            <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
+            <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
+          </select>
+          <button id="btn-stores-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
+        </div>
+      `, 'filter-accordion-admin')}
       ${renderCollectionCards({
         rows,
         emptyTitle: 'Nenhuma loja encontrada.',
@@ -1135,6 +1256,8 @@ function renderStores() {
       })}
     </article>
   `;
+
+  bindFilterAccordions(el.content);
 
   const form = document.getElementById('store-form');
   const searchInput = document.getElementById('stores-search');
@@ -1382,21 +1505,23 @@ function renderTypes() {
           <p>Todos os tipos ficam organizados em cards com status e descrição.</p>
         </div>
       </div>
-      <div class="filters filters-admin">
-        <input id="types-search" placeholder="Buscar por nome" value="${ui.search}" />
-        <select id="types-status">
-          <option value="">Todos os status</option>
-          <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
-          <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
-        </select>
-        <select id="types-sort">
-          <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
-          <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
-          <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
-          <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
-        </select>
-        <button id="btn-types-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
-      </div>
+      ${renderFilterAccordion('types', `
+        <div class="filters filters-admin">
+          <input id="types-search" placeholder="Buscar por nome" value="${ui.search}" />
+          <select id="types-status">
+            <option value="">Todos os status</option>
+            <option value="ativo" ${ui.status === 'ativo' ? 'selected' : ''}>Ativo</option>
+            <option value="inativo" ${ui.status === 'inativo' ? 'selected' : ''}>Inativo</option>
+          </select>
+          <select id="types-sort">
+            <option value="name_asc" ${ui.sort === 'name_asc' ? 'selected' : ''}>Nome (A-Z)</option>
+            <option value="name_desc" ${ui.sort === 'name_desc' ? 'selected' : ''}>Nome (Z-A)</option>
+            <option value="recent" ${ui.sort === 'recent' ? 'selected' : ''}>Mais recente</option>
+            <option value="oldest" ${ui.sort === 'oldest' ? 'selected' : ''}>Mais antigo</option>
+          </select>
+          <button id="btn-types-clear" class="btn btn-ghost btn-sm">Limpar filtros</button>
+        </div>
+      `, 'filter-accordion-admin')}
       ${renderCollectionCards({
         rows,
         emptyTitle: 'Nenhum tipo encontrado.',
@@ -1421,6 +1546,8 @@ function renderTypes() {
       })}
     </article>
   `;
+
+  bindFilterAccordions(el.content);
 
   const form = document.getElementById('type-form');
   const searchInput = document.getElementById('types-search');
@@ -2200,6 +2327,12 @@ function bindTopActions() {
     });
   }
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || isDesktopNav()) return;
+    if (!document.body.classList.contains('nav-open')) return;
+    setNavOpen(false);
+  });
+
   if (el.btnAdminQuick) {
     el.btnAdminQuick.addEventListener('click', async () => {
       if (!isAdmin()) return showToast('Acesso restrito para administradores.', 'error');
@@ -2214,6 +2347,7 @@ function bindTopActions() {
   }
 
   window.addEventListener('resize', syncMenuState);
+  window.addEventListener('resize', () => bindFilterAccordions(el.content));
 
   el.globalSearch.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;

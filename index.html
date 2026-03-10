@@ -61,8 +61,8 @@
   </main>
 
   <main id="app-view" class="app-shell hidden">
-    <aside class="sidebar">
-      <button id="btn-nav-close" class="btn btn-ghost btn-sm sidebar-close" type="button">Fechar</button>
+    <aside class="sidebar" id="sidebar" aria-label="Navegação principal">
+      <button id="btn-nav-close" class="btn btn-ghost btn-sm sidebar-close" type="button" aria-label="Fechar menu de navegação">Fechar</button>
       <div class="brand">
         <div class="brand-logo" aria-hidden="true">
           <img src="assets/logomartree.png" alt="Logo Martree" class="brand-logo-img" />
@@ -79,12 +79,12 @@
         <button id="btn-logout" class="btn btn-danger btn-sm" type="button">Sair</button>
       </div>
     </aside>
-    <div id="nav-overlay" class="nav-overlay"></div>
+    <div id="nav-overlay" class="nav-overlay" aria-hidden="true"></div>
 
     <section class="main-panel">
       <header class="topbar">
         <div class="topbar-left">
-          <button id="btn-nav-toggle" class="btn btn-ghost btn-sm" type="button">Menu</button>
+          <button id="btn-nav-toggle" class="btn btn-ghost btn-sm" type="button" aria-controls="sidebar" aria-expanded="false">Menu</button>
           <div class="topbar-title-group">
             <h1 id="view-title">Dashboard</h1>
             <p id="user-info"></p>
