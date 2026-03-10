@@ -24,6 +24,13 @@
   --shadow: 0 24px 54px rgba(0, 0, 0, 0.34);
   --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.42);
   --container: 1480px;
+  --btn-height: 44px;
+  --btn-height-sm: 38px;
+  --btn-padding-x: 16px;
+  --btn-padding-x-sm: 12px;
+  --btn-radius: 12px;
+  --btn-font-size: 0.95rem;
+  --btn-font-size-sm: 0.84rem;
 }
 
 * {
@@ -188,28 +195,54 @@ textarea:disabled {
   cursor: not-allowed;
 }
 
-.btn {
+.btn,
+.nav-btn,
+.ticket-tab,
+.details-tab,
+input[type="submit"],
+input[type="button"],
+a.btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 46px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--btn-height);
   border: 1px solid transparent;
-  border-radius: 14px;
-  padding: 0 18px;
+  border-radius: var(--btn-radius);
+  padding: 8px var(--btn-padding-x);
   font: inherit;
+  font-size: var(--btn-font-size);
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  vertical-align: middle;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
   transition: transform 0.2s ease, filter 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.btn:hover {
+.btn:hover,
+.nav-btn:hover,
+.ticket-tab:hover,
+.details-tab:hover,
+input[type="submit"]:hover,
+input[type="button"]:hover,
+a.btn:hover {
   transform: translateY(-1px);
 }
 
-.btn:active {
+.btn:active,
+.nav-btn:active,
+.ticket-tab:active,
+.details-tab:active,
+input[type="submit"]:active,
+input[type="button"]:active,
+a.btn:active {
   transform: translateY(0);
 }
 
@@ -254,22 +287,34 @@ textarea:disabled {
 }
 
 .btn-sm {
-  min-height: 38px;
-  padding: 0 13px;
-  font-size: 0.83rem;
+  min-height: var(--btn-height-sm);
+  padding: 6px var(--btn-padding-x-sm);
+  font-size: var(--btn-font-size-sm);
+}
+
+.btn-block {
+  width: 100%;
 }
 
 .auth-actions {
   margin: 12px 0 8px;
 }
 
+#login-form .btn,
+#register-form .btn,
+.auth-actions .btn {
+  width: 100%;
+}
+
 .app-shell {
-  width: min(calc(100% - 24px), var(--container));
+  width: 100%;
+  max-width: var(--container);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 20px 0 28px;
+  padding: 20px 12px 28px;
   display: grid;
   gap: 18px;
+  overflow-x: clip;
 }
 
 .sidebar {
@@ -351,13 +396,8 @@ body.nav-open .sidebar {
   border: 1px solid rgba(114, 145, 191, 0.22);
   background: rgba(13, 24, 40, 0.72);
   color: #bfd2f5;
-  border-radius: 14px;
-  padding: 12px 14px;
-  cursor: pointer;
-  font: inherit;
   font-weight: 600;
   text-align: left;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .nav-btn:hover {
@@ -400,7 +440,33 @@ body.nav-open .nav-overlay {
   display: grid;
   gap: 18px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  overflow-x: clip;
+}
+
+@media (min-width: 981px) {
+  body.nav-desktop .sidebar {
+    transform: translateX(0);
+  }
+
+  body.nav-desktop .nav-overlay {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  body.nav-desktop .sidebar-close {
+    display: none;
+  }
+
+  body.nav-desktop #btn-nav-toggle {
+    display: none;
+  }
+
+  body.nav-desktop .main-panel {
+    margin-left: 344px;
+    width: calc(100% - 344px);
+  }
 }
 
 .topbar,
@@ -411,6 +477,7 @@ body.nav-open .nav-overlay {
   border: 1px solid var(--line);
   border-radius: 24px;
   box-shadow: var(--shadow);
+  max-width: 100%;
 }
 
 .topbar {
@@ -429,9 +496,9 @@ body.nav-open .nav-overlay {
 }
 
 #btn-nav-toggle {
-  min-width: 92px;
+  min-width: 84px;
   min-height: 42px;
-  padding: 0 16px;
+  padding-inline: 14px;
   color: #f4f8ff;
   background:
     linear-gradient(135deg, rgba(115, 210, 255, 0.2), rgba(53, 119, 214, 0.18)),
@@ -481,6 +548,12 @@ body.nav-open .nav-overlay {
   gap: 12px;
   flex: 1;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.topbar-actions > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .search-shell {
@@ -528,6 +601,7 @@ body.nav-open .nav-overlay {
   display: grid;
   gap: 18px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -886,19 +960,12 @@ body.nav-open .nav-overlay {
 }
 
 .ticket-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  padding: 0 16px;
   border-radius: 999px;
   border: 1px solid rgba(114, 145, 191, 0.22);
   background: rgba(13, 24, 40, 0.72);
   color: #bfd2f5;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  min-height: 40px;
+  padding-inline: 16px;
 }
 
 .ticket-tab:hover {
@@ -1067,6 +1134,53 @@ body.nav-open .nav-overlay {
   border-color: rgba(129, 168, 224, 0.22);
 }
 
+.details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.details-header h2 {
+  margin-bottom: 6px;
+}
+
+.details-header p {
+  margin: 0;
+  color: #bfd0eb;
+}
+
+.details-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.details-tab {
+  min-height: 40px;
+  padding-inline: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(114, 145, 191, 0.22);
+  background: rgba(13, 24, 40, 0.72);
+  color: #bfd2f5;
+}
+
+.details-tab.active {
+  color: #041324;
+  background: linear-gradient(130deg, #79d0ff 0%, #47a4ff 100%);
+  border-color: transparent;
+  box-shadow: 0 14px 30px rgba(48, 130, 222, 0.28);
+}
+
+.details-panel {
+  display: none;
+  gap: 14px;
+}
+
+.details-panel.active {
+  display: grid;
+}
+
 .ticket-progress-panel {
   display: grid;
   gap: 10px;
@@ -1088,6 +1202,13 @@ body.nav-open .nav-overlay {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.modal-footer > *,
+.admin-form-actions > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .history-item {
@@ -1155,6 +1276,10 @@ body.nav-open .nav-overlay {
   gap: 8px;
 }
 
+.actions-cell .btn {
+  max-width: 100%;
+}
+
 .entity-card .badge,
 .entity-card .b-ativo,
 .entity-card .b-inativo {
@@ -1189,8 +1314,11 @@ body.nav-open .nav-overlay {
 
 @media (max-width: 980px) {
   .app-shell {
-    width: min(calc(100% - 16px), var(--container));
+    width: 100%;
+    max-width: var(--container);
     padding-top: 10px;
+    padding-left: 8px;
+    padding-right: 8px;
     padding-bottom: 18px;
     gap: 14px;
   }
@@ -1214,6 +1342,10 @@ body.nav-open .nav-overlay {
     max-width: none;
   }
 
+  .topbar-actions .btn {
+    max-width: 100%;
+  }
+
   .grid-2,
   .grid-3 {
     grid-template-columns: 1fr;
@@ -1235,7 +1367,8 @@ body.nav-open .nav-overlay {
 
   .admin-form-actions .btn,
   .modal-footer .btn {
-    flex: 1 1 180px;
+    flex: 1 1 160px;
+    min-width: 0;
   }
 
   .entity-grid,
@@ -1260,7 +1393,7 @@ body.nav-open .nav-overlay {
   }
 
   .app-shell {
-    width: calc(100% - 12px);
+    width: 100%;
     gap: 12px;
   }
 
@@ -1283,6 +1416,18 @@ body.nav-open .nav-overlay {
   .topbar-actions .btn,
   .search-shell {
     width: 100%;
+  }
+
+  .ticket-tabs,
+  .details-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-tab,
+  .details-tab {
+    width: 100%;
+    border-radius: 14px;
   }
 
   .cards-grid {
@@ -1343,6 +1488,18 @@ body.nav-open .nav-overlay {
   .entity-card-actions .btn {
     width: 100%;
     flex: 1 1 auto;
+  }
+
+  .actions-cell {
+    min-width: 0;
+  }
+
+  .actions-cell .btn {
+    flex: 1 1 140px;
+  }
+
+  .details-header {
+    flex-direction: column;
   }
 
   #toast-container {
@@ -1418,6 +1575,15 @@ body.nav-open .nav-overlay {
     font-size: 0.95rem;
   }
 
+  :root {
+    --btn-height: 42px;
+    --btn-height-sm: 36px;
+    --btn-padding-x: 14px;
+    --btn-padding-x-sm: 11px;
+    --btn-font-size: 0.92rem;
+    --btn-font-size-sm: 0.81rem;
+  }
+
   .modal {
     width: calc(100vw - 12px);
   }
@@ -1433,6 +1599,19 @@ body.nav-open .nav-overlay {
 
   .modal-footer .btn,
   .admin-form-actions .btn {
+    width: 100%;
+  }
+
+  .filters button,
+  .filters-admin button,
+  .card-title-row > .btn,
+  .admin-header > .btn,
+  .toolbar > .btn {
+    width: 100%;
+  }
+
+  #btn-nav-toggle,
+  #btn-open-ticket {
     width: 100%;
   }
 }
