@@ -1815,6 +1815,27 @@ textarea {
   gap: var(--space-2);
 }
 
+.ticket-form-card .admin-form-actions {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.ticket-form-card .admin-form-actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 136px;
+}
+
+#btn-open-ticket {
+  min-width: 128px;
+  width: auto;
+  justify-self: end;
+}
+
+#btn-open-ticket-modal {
+  min-width: 122px;
+}
+
 .cards-grid {
   gap: 14px;
 }
@@ -2023,6 +2044,12 @@ textarea {
   #btn-open-ticket {
     width: 100%;
     max-width: 100%;
+    min-width: 0;
+  }
+
+  .ticket-form-card .admin-form-actions .btn,
+  #btn-open-ticket-modal {
+    width: 100%;
     min-width: 0;
   }
 
