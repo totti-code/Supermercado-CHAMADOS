@@ -3372,3 +3372,100 @@ textarea:focus,
     min-width: 620px;
   }
 }
+
+/* Contrast reinforcement for light theme */
+label,
+.card-title-row p,
+.admin-header p,
+.details-header p,
+.recent-ticket p,
+.entity-card-head p,
+.small,
+.muted,
+#user-info,
+.brand-copy small,
+.custom-dialog-message,
+.toast {
+  color: #4f645a;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #7f9389;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  color: #64786e;
+  background: #f3f7f4;
+  border-color: #d4e0d8;
+  opacity: 1;
+}
+
+.card-title-row h3,
+.admin-header h3,
+.toolbar h3,
+.details-header h2,
+#details-content h2,
+#details-content h3,
+#details-content strong,
+#details-content a,
+.custom-dialog-header h2 {
+  color: #12241b;
+}
+
+#details-content,
+#details-content p,
+#details-content div,
+#details-content small,
+#details-content label {
+  color: #31443b;
+}
+
+#details-content .card,
+#details-content .info-item,
+#details-content .ticket-progress-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbf9 100%);
+  border-color: #d9e5dc;
+}
+
+#details-content a {
+  color: #1f7a3d;
+}
+
+#details-content .history-item {
+  border-left-color: rgba(31, 122, 61, 0.24);
+}
+
+.filters,
+.filters-admin,
+.ticket-tabs,
+.details-tabs,
+.table-wrap,
+.admin-form,
+.entity-card,
+.recent-ticket,
+.info-item {
+  border-color: #d4e1d8;
+}
+
+.badge {
+  border-color: #d6e1d9;
+}
+
+.sidebar .btn-ghost,
+.sidebar .btn-danger,
+.sidebar .btn-warning,
+.sidebar .btn-primary {
+  color: #eff8f2;
+}
+
+.sidebar .btn-ghost {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.sidebar .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
