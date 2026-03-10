@@ -1826,6 +1826,17 @@ textarea {
   min-width: 136px;
 }
 
+#store-form .admin-form-actions {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+#store-form .admin-form-actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 140px;
+}
+
 #btn-open-ticket {
   min-width: 128px;
   width: auto;
@@ -2048,6 +2059,7 @@ textarea {
   }
 
   .ticket-form-card .admin-form-actions .btn,
+  #store-form .admin-form-actions .btn,
   #btn-open-ticket-modal {
     width: 100%;
     min-width: 0;
