@@ -368,6 +368,10 @@ with check (
   or usuario_id = auth.uid()
 );
 
+create policy chamados_delete_admin on public.chamados
+for delete to authenticated
+using (public.is_admin());
+
 -- Historico
 create policy historico_select_access on public.historico_chamados
 for select to authenticated

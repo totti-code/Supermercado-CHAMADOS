@@ -70,7 +70,15 @@ const el = {
 };
 
 function showAuthScreen() {
-  setNavOpen(false);
+  document.body.classList.remove('nav-open', 'nav-desktop');
+  state.isSigningOut = false;
+  state.currentView = 'dashboard';
+  state.menu = [];
+  state.allTickets = [];
+  state.tickets = [];
+  if (el.btnLogout) {
+    el.btnLogout.disabled = false;
+  }
   el.appView.classList.add('hidden');
   el.authView.classList.remove('hidden');
   el.loginForm.classList.remove('hidden');
@@ -78,8 +86,73 @@ function showAuthScreen() {
 }
 
 function showAppScreen() {
+  syncMenuState();
+  state.isSigningOut = false;
+  if (el.btnLogout) {
+    el.btnLogout.disabled = false;
+  }
   el.authView.classList.add('hidden');
   el.appView.classList.remove('hidden');
+}
+
+function clearClientSessionState() {
+  state.session = null;
+  state.profile = null;
+  state.currentView = 'dashboard';
+  state.menu = [];
+  state.allTickets = [];
+  state.tickets = [];
+  state.adminUi.tickets.filters = {
+    store: '',
+    checkout: '',
+    type: '',
+    status: '',
+    priority: ''
+  };
+  state.adminUi.tickets.tab = 'active';
+
+  try {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  } catch (error) {
+    console.warn('Nao foi possivel limpar o storage local.', error);
+  }
+}
+
+async function performLogout() {
+  if (state.isSigningOut) return;
+  state.isSigningOut = true;
+
+  if (el.btnLogout) {
+    el.btnLogout.disabled = true;
+  }
+
+  setNavOpen(false);
+
+  try {
+    if (window.sb?.auth) {
+      const { error } = await sb.auth.signOut({ scope: 'local' });
+      if (error) {
+        console.error(error);
+      }
+    }
+  } finally {
+    state.isSigningOut = false;
+    clearClientSessionState();
+    showAuthScreen();
+    window.location.href = 'login.html';
+  }
+}
+
+function initLogoutButton() {
+  if (!el.btnLogout) return;
+  el.btnLogout.type = 'button';
+  el.btnLogout.style.pointerEvents = 'auto';
+  el.btnLogout.addEventListener('click', async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await performLogout();
+  });
 }
 
 function showToast(msg, type = 'ok') {
@@ -269,8 +342,25 @@ function isAdmin() {
   return state.profile?.perfil === 'admin';
 }
 
+function isDesktopNav() {
+  return window.innerWidth > 980;
+}
+
 function setNavOpen(open) {
+  if (isDesktopNav()) {
+    document.body.classList.add('nav-open');
+    return;
+  }
   document.body.classList.toggle('nav-open', !!open);
+}
+
+function syncMenuState() {
+  document.body.classList.toggle('nav-desktop', isDesktopNav());
+  if (isDesktopNav()) {
+    document.body.classList.add('nav-open');
+  } else {
+    document.body.classList.remove('nav-open');
+  }
 }
 
 function mountMenu() {
@@ -282,7 +372,7 @@ function mountMenu() {
 
 async function openCurrentView(viewId) {
   state.currentView = viewId;
-  setNavOpen(false);
+  if (!isDesktopNav()) setNavOpen(false);
   mountMenu();
   try {
     await renderView();
@@ -414,7 +504,7 @@ function renderDashboard() {
           </div>
           <div class="recent-list">
             ${recent.length ? recent.map(r => `
-              <button class="recent-ticket" data-action="open" data-id="${r.id}">
+              <button type="button" class="recent-ticket" data-action="open" data-id="${r.id}">
                 <div class="recent-head">
                   <strong>${r.titulo}</strong>
                   <div class="recent-badges">
@@ -1353,12 +1443,19 @@ async function renderView() {
 }
 
 function bindTicketRowActions() {
-  el.content.querySelectorAll('button[data-action="open"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const ticketId = Number(btn.dataset.id);
-      await openTicketDetails(ticketId);
-    });
+  if (document.body.dataset.ticketActionsBound === 'true') return;
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('button[data-action="open"]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ticketId = Number(btn.dataset.id);
+    if (!ticketId) return;
+    await openTicketDetails(ticketId);
   });
+
+  document.body.dataset.ticketActionsBound = 'true';
 }
 
 async function openTicketDetails(ticketId) {
@@ -1404,48 +1501,121 @@ async function openTicketDetails(ticketId) {
         </select>
         <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
         </div>
+        <div class="admin-form-actions">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-ticket" data-id="${ticket.id}">Excluir chamado</button>
+        </div>
       </div>`
     : '';
 
   el.detailsContent.innerHTML = `
-    <h2>Chamado ${ticket.numero_chamado || ticket.id}</h2>
-    <p><strong>Loja:</strong> ${ticket.loja?.nome || '-'} | <strong>Equipamentos/Setor:</strong> ${ticket.caixa?.nome || '-'}</p>
-    <p><strong>Tipo:</strong> ${ticket.tipo?.nome || '-'} | <strong>Prioridade:</strong> ${badgePriority(ticket.prioridade)} | <strong>Status:</strong> ${badgeStatus(ticket.status)}</p>
-    <p><strong>Título:</strong> ${ticket.titulo}</p>
-    <p><strong>Descrição:</strong> ${ticket.descricao}</p>
-    <p><strong>Abertura:</strong> ${fmtDate(ticket.created_at)} | <strong>Solicitante:</strong> ${ticket.usuario?.nome || '-'}</p>
-    ${ticket.anexo_url ? `<p><a href="${ticket.anexo_url}" target="_blank">Ver anexo</a></p>` : ''}
-    ${statusActions}
-    <div class="card">
-      <h3>Adicionar observação</h3>
-      <textarea id="obs-text" rows="3" placeholder="Digite uma observação"></textarea>
-      <button id="btn-add-observation" class="btn btn-primary btn-sm" data-id="${ticket.id}">Registrar observação</button>
+    <div class="details-header">
+      <div>
+        <h2>Chamado ${ticket.numero_chamado || ticket.id}</h2>
+        <p>${ticket.titulo}</p>
+      </div>
+      <div class="entity-card-badges">
+        ${badgePriority(ticket.prioridade)}
+        ${badgeStatus(ticket.status)}
+      </div>
     </div>
-    <div class="card">
-      <h3>Histórico</h3>
-      ${history.length ? history.map(h => `
-        <div class="history-item">
-          <strong>${h.acao}</strong> - ${fmtDate(h.created_at)}
-          <div>${h.descricao || ''}</div>
-          <small>Por: ${h.usuario?.nome || 'Sistema'}</small>
+
+    <div class="details-tabs">
+      <button class="details-tab active" type="button" data-details-tab="info">Informações</button>
+      <button class="details-tab" type="button" data-details-tab="status">Alterar status</button>
+      <button class="details-tab" type="button" data-details-tab="history">Histórico</button>
+    </div>
+
+    <section class="details-panel active" data-details-panel="info">
+      <div class="card">
+        <h3>Informações principais</h3>
+        <div class="info-grid">
+          <div class="info-item"><span>Loja</span><strong>${ticket.loja?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Equipamentos/Setor</span><strong>${ticket.caixa?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Tipo</span><strong>${ticket.tipo?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Solicitante</span><strong>${ticket.usuario?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Abertura</span><strong>${fmtDate(ticket.created_at)}</strong></div>
+          <div class="info-item"><span>Anexo</span><strong>${ticket.anexo_url ? `<a href="${ticket.anexo_url}" target="_blank">Ver anexo</a>` : '-'}</strong></div>
         </div>
-      `).join('') : '<p>Sem histórico.</p>'}
-    </div>
+      </div>
+      <div class="card">
+        <h3>Descrição</h3>
+        <p>${ticket.descricao}</p>
+      </div>
+    </section>
+
+    <section class="details-panel" data-details-panel="status">
+      ${statusActions || '<div class="card"><p>Somente administradores podem alterar o status deste chamado.</p></div>'}
+      <div class="card">
+        <h3>Adicionar observação</h3>
+        <textarea id="obs-text" rows="3" placeholder="Digite uma observação"></textarea>
+        <button id="btn-add-observation" class="btn btn-primary btn-sm" data-id="${ticket.id}">Registrar observação</button>
+      </div>
+    </section>
+
+    <section class="details-panel" data-details-panel="history">
+      <div class="card">
+        <h3>Histórico</h3>
+        ${history.length ? history.map(h => `
+          <div class="history-item">
+            <strong>${h.acao}</strong> - ${fmtDate(h.created_at)}
+            <div>${h.descricao || ''}</div>
+            <small>Por: ${h.usuario?.nome || 'Sistema'}</small>
+          </div>
+        `).join('') : '<p>Sem histórico.</p>'}
+      </div>
+    </section>
     <footer class="modal-footer">
-      <button class="btn btn-ghost" id="btn-close-details">Fechar</button>
+      <button type="button" class="btn btn-ghost" id="btn-close-details">Fechar</button>
     </footer>
   `;
+
+  el.detailsContent.querySelectorAll('[data-details-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const nextTab = tab.dataset.detailsTab;
+      el.detailsContent.querySelectorAll('[data-details-tab]').forEach(node => {
+        node.classList.toggle('active', node.dataset.detailsTab === nextTab);
+      });
+      el.detailsContent.querySelectorAll('[data-details-panel]').forEach(node => {
+        node.classList.toggle('active', node.dataset.detailsPanel === nextTab);
+      });
+    });
+  });
 
   if (isAdmin()) {
     const select = document.getElementById('ticket-status-update');
     select.value = ticket.status;
     document.getElementById('btn-change-status').addEventListener('click', async () => {
       const nextStatus = select.value;
-      await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id));
+      const updated = await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id).select().single());
+      if (!updated) return;
       showToast('Status atualizado');
+      if (el.detailsModal.open) {
+        el.detailsModal.close();
+      }
       await reloadAll();
-      await openTicketDetails(ticket.id);
-      renderView();
+      await renderView();
+    });
+
+    document.getElementById('btn-delete-ticket').addEventListener('click', async () => {
+      if (!confirm(`Excluir o chamado ${ticket.numero_chamado || ticket.id}? Essa ação não poderá ser desfeita.`)) return;
+      const { error, count } = await sb
+        .from('chamados')
+        .delete({ count: 'exact' })
+        .eq('id', ticket.id);
+      if (error) {
+        showToast(error.message, 'error');
+        return;
+      }
+      if (!count) {
+        showToast('Nenhum chamado foi excluído. Verifique a permissão de exclusão no banco.', 'error');
+        return;
+      }
+      showToast('Chamado excluído com sucesso');
+      if (el.detailsModal.open) {
+        el.detailsModal.close();
+      }
+      await reloadAll();
+      await renderView();
     });
   }
 
@@ -1457,8 +1627,21 @@ async function openTicketDetails(ticketId) {
     await openTicketDetails(ticket.id);
   });
 
-  document.getElementById('btn-close-details').addEventListener('click', () => el.detailsModal.close());
-  el.detailsModal.showModal();
+  document.getElementById('btn-close-details').addEventListener('click', () => {
+    if (el.detailsModal.open) {
+      el.detailsModal.close();
+    }
+  });
+
+  if (el.detailsModal.open) {
+    el.detailsModal.close();
+  }
+
+  requestAnimationFrame(() => {
+    if (!el.detailsModal.open) {
+      el.detailsModal.showModal();
+    }
+  });
 }
 
 async function reloadAll() {
@@ -1561,7 +1744,11 @@ async function bootApp(session) {
   state.session = session;
   await ensureProfile(session.user);
   state.currentView = 'dashboard';
-  setNavOpen(false);
+  syncMenuState();
+  state.isSigningOut = false;
+  if (el.btnLogout) {
+    el.btnLogout.disabled = false;
+  }
 
   if (!state.profile.ativo) {
     showToast('Usuário inativo. Contate o administrador.', 'error');
@@ -1642,35 +1829,25 @@ function bindTopActions() {
 
   if (el.btnNavToggle) {
     el.btnNavToggle.addEventListener('click', () => {
+      if (isDesktopNav()) return;
       const isOpen = document.body.classList.contains('nav-open');
       setNavOpen(!isOpen);
     });
   }
 
   if (el.btnNavClose) {
-    el.btnNavClose.addEventListener('click', () => setNavOpen(false));
+    el.btnNavClose.addEventListener('click', () => {
+      if (isDesktopNav()) return;
+      setNavOpen(false);
+    });
   }
 
   if (el.navOverlay) {
-    el.navOverlay.addEventListener('click', () => setNavOpen(false));
+    el.navOverlay.addEventListener('click', () => {
+      if (isDesktopNav()) return;
+      setNavOpen(false);
+    });
   }
-
-  el.btnLogout.addEventListener('click', async () => {
-    if (state.isSigningOut) return;
-    state.isSigningOut = true;
-    el.btnLogout.disabled = true;
-    setNavOpen(false);
-    try {
-      const { error } = await sb.auth.signOut();
-      if (error) {
-        showToast(error.message, 'error');
-        return;
-      }
-    } finally {
-      state.isSigningOut = false;
-      el.btnLogout.disabled = false;
-    }
-  });
 
   if (el.btnAdminQuick) {
     el.btnAdminQuick.addEventListener('click', async () => {
@@ -1684,6 +1861,8 @@ function bindTopActions() {
       document.body.classList.toggle('theme-light');
     });
   }
+
+  window.addEventListener('resize', syncMenuState);
 
   el.globalSearch.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
@@ -1704,6 +1883,15 @@ function bindTopActions() {
     await fetchTickets();
     await openTicketDetails(data[0].id);
   });
+
+  if (el.detailsModal) {
+    el.detailsModal.addEventListener('close', () => {
+      el.detailsContent.innerHTML = '';
+    });
+    el.detailsModal.addEventListener('cancel', () => {
+      el.detailsContent.innerHTML = '';
+    });
+  }
 }
 
 async function init() {
@@ -1711,8 +1899,10 @@ async function init() {
 
   bootAuth();
   bindTopActions();
+  initLogoutButton();
   setupTicketModal();
 
+  syncMenuState();
   el.authView.classList.add('hidden');
   el.appView.classList.add('hidden');
   await loadLookups();
@@ -1730,10 +1920,11 @@ async function init() {
     if (session && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')) {
       await bootApp(session);
     } else {
-      state.session = null;
-      state.profile = null;
       state.isSigningOut = false;
-      el.btnLogout.disabled = false;
+      if (el.btnLogout) {
+        el.btnLogout.disabled = false;
+      }
+      clearClientSessionState();
       showAuthScreen();
     }
   });
