@@ -146,6 +146,20 @@
     <section class="modal-body" id="details-content"></section>
   </dialog>
 
+  <dialog id="custom-dialog" class="modal modal-compact">
+    <form id="custom-dialog-form" class="modal-body custom-dialog-body">
+      <header class="custom-dialog-header">
+        <h2 id="custom-dialog-title">Confirmar ação</h2>
+        <p id="custom-dialog-message" class="custom-dialog-message hidden"></p>
+      </header>
+      <section id="custom-dialog-fields" class="form-grid custom-dialog-fields"></section>
+      <footer class="modal-footer">
+        <button type="button" id="custom-dialog-cancel" class="btn btn-ghost">Cancelar</button>
+        <button type="submit" id="custom-dialog-confirm" class="btn btn-primary">Confirmar</button>
+      </footer>
+    </form>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=20260310-1"></script>

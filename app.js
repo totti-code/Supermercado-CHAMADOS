@@ -66,7 +66,20 @@ const el = {
   btnThemeToggle: document.getElementById('btn-theme-toggle'),
   btnNavToggle: document.getElementById('btn-nav-toggle'),
   btnNavClose: document.getElementById('btn-nav-close'),
-  navOverlay: document.getElementById('nav-overlay')
+  navOverlay: document.getElementById('nav-overlay'),
+  customDialog: document.getElementById('custom-dialog'),
+  customDialogForm: document.getElementById('custom-dialog-form'),
+  customDialogTitle: document.getElementById('custom-dialog-title'),
+  customDialogMessage: document.getElementById('custom-dialog-message'),
+  customDialogFields: document.getElementById('custom-dialog-fields'),
+  customDialogCancel: document.getElementById('custom-dialog-cancel'),
+  customDialogConfirm: document.getElementById('custom-dialog-confirm')
+};
+
+const customDialogState = {
+  resolver: null,
+  fields: [],
+  result: { confirmed: false, values: {} }
 };
 
 function showAuthScreen() {
@@ -162,6 +175,161 @@ function showToast(msg, type = 'ok') {
   node.textContent = msg;
   container.appendChild(node);
   setTimeout(() => node.remove(), 3500);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildDialogField(field) {
+  const label = escapeHtml(field.label || '');
+  const name = escapeHtml(field.name);
+  const value = field.value ?? '';
+  const required = field.required ? 'required' : '';
+  const placeholder = field.placeholder ? `placeholder="${escapeHtml(field.placeholder)}"` : '';
+
+  if (field.type === 'select') {
+    const options = (field.options || [])
+      .map(option => `
+        <option value="${escapeHtml(option.value)}" ${String(option.value) === String(value) ? 'selected' : ''}>
+          ${escapeHtml(option.label)}
+        </option>
+      `)
+      .join('');
+
+    return `
+      <label>
+        ${label}
+        <select name="${name}" ${required}>${options}</select>
+      </label>
+    `;
+  }
+
+  if (field.type === 'textarea') {
+    return `
+      <label>
+        ${label}
+        <textarea name="${name}" rows="${field.rows || 3}" ${required} ${placeholder}>${escapeHtml(value)}</textarea>
+      </label>
+    `;
+  }
+
+  if (field.type === 'checkbox') {
+    return `
+      <label class="checkbox-field">
+        <input type="checkbox" name="${name}" ${value ? 'checked' : ''} />
+        <span>${label}</span>
+      </label>
+    `;
+  }
+
+  return `
+    <label>
+      ${label}
+      <input
+        type="${field.type || 'text'}"
+        name="${name}"
+        value="${escapeHtml(value)}"
+        ${required}
+        ${placeholder}
+        ${field.minLength ? `minlength="${field.minLength}"` : ''}
+      />
+    </label>
+  `;
+}
+
+function closeCustomDialog(result = { confirmed: false, values: {} }) {
+  customDialogState.result = result;
+  if (el.customDialog?.open) {
+    el.customDialog.close();
+  }
+}
+
+function readCustomDialogValues() {
+  const formData = new FormData(el.customDialogForm);
+  const values = {};
+  customDialogState.fields.forEach(field => {
+    if (field.type === 'checkbox') {
+      values[field.name] = el.customDialogForm.elements[field.name].checked;
+      return;
+    }
+    values[field.name] = (formData.get(field.name) ?? '').toString().trim();
+  });
+  return values;
+}
+
+function openCustomDialog({
+  title,
+  message = '',
+  fields = [],
+  confirmText = 'Salvar',
+  cancelText = 'Cancelar',
+  confirmClass = 'btn btn-primary',
+  showCancel = true
+}) {
+  customDialogState.fields = fields;
+  customDialogState.result = { confirmed: false, values: {} };
+
+  el.customDialogTitle.textContent = title;
+  el.customDialogMessage.textContent = message;
+  el.customDialogMessage.classList.toggle('hidden', !message);
+  el.customDialogFields.innerHTML = fields.map(buildDialogField).join('');
+  el.customDialogCancel.textContent = cancelText;
+  el.customDialogCancel.classList.toggle('hidden', !showCancel);
+  el.customDialogConfirm.textContent = confirmText;
+  el.customDialogConfirm.className = confirmClass;
+
+  return new Promise(resolve => {
+    customDialogState.resolver = resolve;
+    if (el.customDialog.open) {
+      el.customDialog.close();
+    }
+    requestAnimationFrame(() => el.customDialog.showModal());
+  });
+}
+
+async function showConfirmDialog({ title, message, confirmText = 'Confirmar', confirmClass = 'btn btn-primary' }) {
+  const result = await openCustomDialog({
+    title,
+    message,
+    confirmText,
+    confirmClass,
+    fields: []
+  });
+  return result.confirmed;
+}
+
+function initCustomDialog() {
+  if (!el.customDialog || !el.customDialogForm) return;
+
+  el.customDialogForm.addEventListener('submit', event => {
+    event.preventDefault();
+    closeCustomDialog({
+      confirmed: true,
+      values: readCustomDialogValues()
+    });
+  });
+
+  el.customDialogCancel.addEventListener('click', () => {
+    closeCustomDialog({ confirmed: false, values: {} });
+  });
+
+  el.customDialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeCustomDialog({ confirmed: false, values: {} });
+  });
+
+  el.customDialog.addEventListener('close', () => {
+    const resolver = customDialogState.resolver;
+    if (!resolver) return;
+    customDialogState.resolver = null;
+    resolver(customDialogState.result);
+  });
 }
 
 function fmtDate(value) {
@@ -1059,7 +1227,13 @@ function renderStores() {
       }
 
       if (btn.dataset.storeAction === 'toggle') {
-        if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} a loja ${row.nome}?`)) return;
+        const confirmed = await showConfirmDialog({
+          title: `${row.ativo ? 'Inativar' : 'Ativar'} loja`,
+          message: `Deseja ${row.ativo ? 'inativar' : 'ativar'} a loja ${row.nome}?`,
+          confirmText: row.ativo ? 'Inativar' : 'Ativar',
+          confirmClass: row.ativo ? 'btn btn-warning' : 'btn btn-primary'
+        });
+        if (!confirmed) return;
         const updated = await safeQuery(
           sb.from('lojas').update({ ativo: !row.ativo }).eq('id', row.id).select().single()
         );
@@ -1070,7 +1244,13 @@ function renderStores() {
         return;
       }
 
-      if (!confirm(`Excluir a loja ${row.nome}? Essa ação pode falhar se houver vínculos.`)) return;
+      const confirmed = await showConfirmDialog({
+        title: 'Excluir loja',
+        message: `Excluir a loja ${row.nome}? Essa ação pode falhar se houver vínculos.`,
+        confirmText: 'Excluir',
+        confirmClass: 'btn btn-danger'
+      });
+      if (!confirmed) return;
       const deleted = await safeQuery(sb.from('lojas').delete().eq('id', row.id).select().single());
       if (!deleted) return;
       showToast('Loja excluída com sucesso.');
@@ -1091,9 +1271,18 @@ function renderCheckouts() {
     { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
   ], {
     create: async () => {
-      const nome = prompt('Nome do equipamento/setor:');
-      if (!nome) return;
-      const setor = prompt('Setor (opcional):') || null;
+      const result = await openCustomDialog({
+        title: 'Novo equipamento/setor',
+        message: 'Cadastre um modelo global para replicar nas lojas disponíveis.',
+        confirmText: 'Salvar',
+        fields: [
+          { name: 'nome', label: 'Nome do equipamento/setor', required: true },
+          { name: 'setor', label: 'Setor (opcional)' }
+        ]
+      });
+      if (!result.confirmed || !result.values.nome) return;
+      const nome = result.values.nome;
+      const setor = result.values.setor || null;
       const key = checkoutKey(nome, setor);
       const inserts = state.lookups.stores
         .filter(store => !state.lookups.checkouts.some(c => c.loja_id === store.id && checkoutKey(c.nome, c.setor) === key))
@@ -1111,9 +1300,17 @@ function renderCheckouts() {
       renderCheckouts();
     },
     edit: async (row) => {
-      const nome = prompt('Nome:', row.nome);
-      if (!nome) return;
-      const setor = prompt('Setor:', row.setor || '') || null;
+      const result = await openCustomDialog({
+        title: 'Editar equipamento/setor',
+        confirmText: 'Salvar alterações',
+        fields: [
+          { name: 'nome', label: 'Nome', required: true, value: row.nome },
+          { name: 'setor', label: 'Setor', value: row.setor || '' }
+        ]
+      });
+      if (!result.confirmed || !result.values.nome) return;
+      const nome = result.values.nome;
+      const setor = result.values.setor || null;
       const oldKey = checkoutKey(row.nome, row.setor);
       const relatedIds = state.lookups.checkouts
         .filter(c => checkoutKey(c.nome, c.setor) === oldKey)
@@ -1125,7 +1322,13 @@ function renderCheckouts() {
       renderCheckouts();
     },
     remove: async (row) => {
-      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      const confirmed = await showConfirmDialog({
+        title: `${row.ativo ? 'Inativar' : 'Ativar'} equipamento/setor`,
+        message: `Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`,
+        confirmText: row.ativo ? 'Inativar' : 'Ativar',
+        confirmClass: row.ativo ? 'btn btn-warning' : 'btn btn-primary'
+      });
+      if (!confirmed) return;
       const key = checkoutKey(row.nome, row.setor);
       const relatedIds = state.lookups.checkouts
         .filter(c => checkoutKey(c.nome, c.setor) === key)
@@ -1308,7 +1511,13 @@ function renderTypes() {
       }
 
       if (btn.dataset.typeAction === 'toggle') {
-        if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} o tipo ${row.nome}?`)) return;
+        const confirmed = await showConfirmDialog({
+          title: `${row.ativo ? 'Inativar' : 'Ativar'} tipo`,
+          message: `Deseja ${row.ativo ? 'inativar' : 'ativar'} o tipo ${row.nome}?`,
+          confirmText: row.ativo ? 'Inativar' : 'Ativar',
+          confirmClass: row.ativo ? 'btn btn-warning' : 'btn btn-primary'
+        });
+        if (!confirmed) return;
         const updated = await safeQuery(
           sb.from('tipos_chamado').update({ ativo: !row.ativo }).eq('id', row.id).select().single()
         );
@@ -1319,7 +1528,13 @@ function renderTypes() {
         return;
       }
 
-      if (!confirm(`Excluir o tipo ${row.nome}? Essa ação pode falhar se houver chamados vinculados.`)) return;
+      const confirmed = await showConfirmDialog({
+        title: 'Excluir tipo',
+        message: `Excluir o tipo ${row.nome}? Essa ação pode falhar se houver chamados vinculados.`,
+        confirmText: 'Excluir',
+        confirmClass: 'btn btn-danger'
+      });
+      if (!confirmed) return;
       const deleted = await safeQuery(sb.from('tipos_chamado').delete().eq('id', row.id).select().single());
       if (!deleted) return;
       showToast('Tipo excluído com sucesso.');
@@ -1339,14 +1554,43 @@ function renderUsers() {
     { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
   ], {
     create: async () => {
-      const nome = prompt('Nome:');
-      if (!nome) return;
-      const email = prompt('Email:');
-      if (!email) return;
-      const senha = prompt('Senha inicial (mín. 6):');
-      if (!senha || senha.length < 6) return;
-      const perfil = prompt('Perfil (admin/funcionario):', 'funcionario');
-      const loja = prompt('ID da loja (vazio opcional):');
+      const result = await openCustomDialog({
+        title: 'Novo usuário',
+        message: 'Cadastre um usuário e defina o perfil e a loja de vínculo.',
+        confirmText: 'Criar usuário',
+        fields: [
+          { name: 'nome', label: 'Nome', required: true },
+          { name: 'email', label: 'Email', type: 'email', required: true },
+          { name: 'senha', label: 'Senha inicial', type: 'password', required: true, minLength: 6, placeholder: 'Mínimo de 6 caracteres' },
+          {
+            name: 'perfil',
+            label: 'Perfil',
+            type: 'select',
+            value: 'funcionario',
+            options: [
+              { value: 'funcionario', label: 'Funcionário' },
+              { value: 'admin', label: 'Admin' }
+            ]
+          },
+          {
+            name: 'loja',
+            label: 'Loja',
+            type: 'select',
+            value: '',
+            options: [{ value: '', label: 'Sem vínculo' }].concat(
+              state.lookups.stores.map(store => ({ value: String(store.id), label: store.nome }))
+            )
+          }
+        ]
+      });
+      if (!result.confirmed) return;
+
+      const nome = result.values.nome;
+      const email = result.values.email;
+      const senha = result.values.senha;
+      const perfil = result.values.perfil;
+      const loja = result.values.loja;
+      if (!nome || !email || !senha || senha.length < 6) return;
 
       const createClient = supabase.createClient(window.APP_CONFIG.supabaseUrl, window.APP_CONFIG.supabaseAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
@@ -1370,11 +1614,48 @@ function renderUsers() {
       renderUsers();
     },
     edit: async (row) => {
-      const nome = prompt('Nome:', row.nome);
-      if (!nome) return;
-      const perfil = prompt('Perfil (admin/funcionario):', row.perfil) || row.perfil;
-      const loja = prompt('ID loja (vazio remove):', row.loja_id || '');
-      const ativo = confirm('Usuário ativo? (OK=ativo / Cancel=inativo)');
+      const result = await openCustomDialog({
+        title: 'Editar usuário',
+        confirmText: 'Salvar alterações',
+        fields: [
+          { name: 'nome', label: 'Nome', required: true, value: row.nome },
+          {
+            name: 'perfil',
+            label: 'Perfil',
+            type: 'select',
+            value: row.perfil,
+            options: [
+              { value: 'funcionario', label: 'Funcionário' },
+              { value: 'admin', label: 'Admin' }
+            ]
+          },
+          {
+            name: 'loja',
+            label: 'Loja',
+            type: 'select',
+            value: row.loja_id || '',
+            options: [{ value: '', label: 'Sem vínculo' }].concat(
+              state.lookups.stores.map(store => ({ value: String(store.id), label: store.nome }))
+            )
+          },
+          {
+            name: 'ativo',
+            label: 'Status',
+            type: 'select',
+            value: row.ativo ? 'true' : 'false',
+            options: [
+              { value: 'true', label: 'Ativo' },
+              { value: 'false', label: 'Inativo' }
+            ]
+          }
+        ]
+      });
+      if (!result.confirmed || !result.values.nome) return;
+
+      const nome = result.values.nome;
+      const perfil = result.values.perfil || row.perfil;
+      const loja = result.values.loja;
+      const ativo = result.values.ativo === 'true';
       await safeQuery(
         sb.from('usuarios').update({
           nome,
@@ -1387,7 +1668,13 @@ function renderUsers() {
       renderUsers();
     },
     remove: async (row) => {
-      if (!confirm(`Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`)) return;
+      const confirmed = await showConfirmDialog({
+        title: `${row.ativo ? 'Inativar' : 'Ativar'} usuário`,
+        message: `Deseja ${row.ativo ? 'inativar' : 'ativar'} ${row.nome}?`,
+        confirmText: row.ativo ? 'Inativar' : 'Ativar',
+        confirmClass: row.ativo ? 'btn btn-warning' : 'btn btn-primary'
+      });
+      if (!confirmed) return;
       await safeQuery(sb.from('usuarios').update({ ativo: !row.ativo }).eq('id', row.id));
       await reloadAll();
       renderUsers();
@@ -1647,7 +1934,13 @@ async function openTicketDetails(ticketId) {
     });
 
     document.getElementById('btn-delete-ticket').addEventListener('click', async () => {
-      if (!confirm(`Excluir o chamado ${ticket.numero_chamado || ticket.id}? Essa ação não poderá ser desfeita.`)) return;
+      const confirmed = await showConfirmDialog({
+        title: 'Excluir chamado',
+        message: `Excluir o chamado ${ticket.numero_chamado || ticket.id}? Essa ação não poderá ser desfeita.`,
+        confirmText: 'Excluir',
+        confirmClass: 'btn btn-danger'
+      });
+      if (!confirmed) return;
       const { error, count } = await sb
         .from('chamados')
         .delete({ count: 'exact' })
@@ -1958,6 +2251,7 @@ async function init() {
   bootAuth();
   bindTopActions();
   initLogoutButton();
+  initCustomDialog();
   setupTicketModal();
 
   syncMenuState();

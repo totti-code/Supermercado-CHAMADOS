@@ -1125,6 +1125,70 @@ button.kpi:focus-visible {
   box-shadow: var(--shadow-lg);
 }
 
+.modal-compact {
+  width: min(560px, calc(100vw - 24px));
+}
+
+.custom-dialog-body {
+  gap: 16px;
+  border-radius: 16px;
+}
+
+.custom-dialog-header {
+  display: grid;
+  gap: 8px;
+}
+
+.custom-dialog-header h2 {
+  margin: 0;
+  color: #f7faff;
+  font-size: 1.15rem;
+}
+
+.custom-dialog-message {
+  margin: 0;
+  color: #cfe0fb;
+  line-height: 1.5;
+}
+
+.custom-dialog-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.custom-dialog-fields label {
+  gap: 6px;
+}
+
+.custom-dialog-fields input,
+.custom-dialog-fields select,
+.custom-dialog-fields textarea {
+  width: 100%;
+}
+
+.custom-dialog-fields .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(118, 152, 197, 0.22);
+  background: rgba(8, 15, 28, 0.88);
+}
+
+.custom-dialog-fields .checkbox-field input {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+}
+
+.custom-dialog-fields .checkbox-field span {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
 #details-content {
   color: #edf4ff;
 }
