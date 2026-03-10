@@ -1822,7 +1822,7 @@ function bootAuth() {
     const nome = document.getElementById('register-name').value.trim();
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
-    const perfil = document.getElementById('register-role').value;
+    const perfil = 'funcionario';
     const loja_id = document.getElementById('register-store').value || null;
 
     const { error } = await sb.auth.signUp({
