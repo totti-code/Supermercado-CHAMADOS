@@ -2236,11 +2236,11 @@ body.theme-light {
   --text: #f3fbf6;
   --text-soft: #d7e8de;
   --muted: #a7beb1;
-  --primary: #6fd39b;
-  --primary-strong: #2e8f5c;
-  --primary-glow: rgba(111, 211, 155, 0.22);
-  --danger: #ce7278;
-  --warning: #d8b06b;
+  --primary: #4be28c;
+  --primary-strong: #1f9b57;
+  --primary-glow: rgba(75, 226, 140, 0.28);
+  --danger: #e24e57;
+  --warning: #e1a74a;
   --ok: #7fd6a4;
   --radius-sm: 14px;
   --radius: 22px;
@@ -2406,32 +2406,34 @@ button {
 .ticket-tab.active,
 .details-tab.active {
   color: #062416;
-  background: linear-gradient(135deg, #b5ecc9 0%, #78ce9e 52%, #4a9d6f 100%);
-  box-shadow: 0 16px 32px rgba(36, 109, 70, 0.28);
+  background: linear-gradient(135deg, #c9f7d9 0%, #65df9a 48%, #229559 100%);
+  box-shadow: 0 16px 32px rgba(28, 128, 73, 0.34);
 }
 
 .btn-primary {
   color: #082214;
-  background: linear-gradient(135deg, #b8edcb 0%, #7cd2a0 50%, #3f9467 100%);
-  border-color: rgba(204, 246, 221, 0.2);
-  box-shadow: 0 14px 30px rgba(49, 123, 82, 0.24);
+  background: linear-gradient(135deg, #d6ffe4 0%, #65e59c 42%, #16914f 100%);
+  border-color: rgba(214, 255, 228, 0.28);
+  box-shadow: 0 16px 34px rgba(27, 132, 74, 0.3);
 }
 
 .btn-primary:hover {
-  filter: brightness(1.03);
-  box-shadow: 0 18px 34px rgba(49, 123, 82, 0.28);
+  filter: brightness(1.06);
+  box-shadow: 0 20px 38px rgba(27, 132, 74, 0.36);
 }
 
 .btn-danger {
-  color: #fff1f1;
-  background: linear-gradient(135deg, rgba(131, 49, 56, 0.92), rgba(94, 28, 33, 0.96));
-  border-color: rgba(233, 163, 170, 0.18);
+  color: #fff4f5;
+  background: linear-gradient(135deg, #ff7d85 0%, #e24e57 46%, #8c1821 100%);
+  border-color: rgba(255, 199, 203, 0.18);
+  box-shadow: 0 16px 30px rgba(150, 25, 35, 0.28);
 }
 
 .btn-warning {
   color: #fff7e3;
-  background: linear-gradient(135deg, rgba(122, 94, 40, 0.94), rgba(96, 71, 26, 0.96));
-  border-color: rgba(232, 203, 146, 0.18);
+  background: linear-gradient(135deg, #f7cc74 0%, #e1a74a 48%, #956217 100%);
+  border-color: rgba(245, 220, 164, 0.2);
+  box-shadow: 0 14px 28px rgba(149, 98, 23, 0.24);
 }
 
 .btn,
@@ -2615,12 +2617,17 @@ textarea:focus {
 .b-status-aguardando_retorno { background: rgba(120, 158, 130, 0.18); color: #d6ead9; }
 .b-status-resolvido { background: rgba(98, 190, 133, 0.2); color: #d7f4e0; }
 .b-status-fechado { background: rgba(172, 194, 182, 0.16); color: #eef9f1; }
-.b-status-cancelado { background: rgba(154, 84, 92, 0.18); color: #f4d9dc; }
+.b-status-cancelado { background: rgba(202, 82, 94, 0.22); color: #ffe1e4; }
 
 .b-prioridade-baixa { background: rgba(159, 219, 178, 0.14); color: #ddf6e6; }
-.b-prioridade-media { background: rgba(197, 184, 125, 0.18); color: #f0eccf; }
-.b-prioridade-alta { background: rgba(180, 120, 112, 0.2); color: #f3dfdc; }
-.b-prioridade-critica { background: rgba(148, 76, 82, 0.24); color: #f6d7db; }
+.b-prioridade-media { background: rgba(224, 179, 77, 0.2); color: #fff0cb; }
+.b-prioridade-alta { background: rgba(222, 124, 98, 0.22); color: #ffe1d8; }
+.b-prioridade-critica {
+  background: linear-gradient(135deg, rgba(255, 115, 127, 0.28), rgba(155, 20, 34, 0.34));
+  color: #fff3f4;
+  border-color: rgba(255, 184, 190, 0.2);
+  box-shadow: 0 0 0 1px rgba(255, 123, 133, 0.08) inset;
+}
 
 .modal::backdrop {
   background: rgba(3, 10, 7, 0.74);
