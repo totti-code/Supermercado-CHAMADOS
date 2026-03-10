@@ -1384,12 +1384,12 @@ body.nav-open .nav-overlay {
 
 @media (max-width: 720px) {
   :root {
-    --btn-height: 40px;
-    --btn-height-sm: 34px;
-    --btn-padding-x: 13px;
-    --btn-padding-x-sm: 10px;
-    --btn-font-size: 0.88rem;
-    --btn-font-size-sm: 0.78rem;
+    --btn-height: 38px;
+    --btn-height-sm: 32px;
+    --btn-padding-x: 11px;
+    --btn-padding-x-sm: 8px;
+    --btn-font-size: 0.84rem;
+    --btn-font-size-sm: 0.74rem;
   }
 
   .auth-shell {
@@ -1418,12 +1418,13 @@ body.nav-open .nav-overlay {
   }
 
   .topbar-actions {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
   }
 
-  .topbar-actions .btn,
   .search-shell {
+    grid-column: 1 / -1;
     width: 100%;
   }
 
@@ -1437,6 +1438,15 @@ body.nav-open .nav-overlay {
   .details-tab {
     width: 100%;
     border-radius: 14px;
+  }
+
+  .btn,
+  .btn-sm,
+  .nav-btn,
+  .ticket-tab,
+  .details-tab {
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 
   .cards-grid {
@@ -1586,12 +1596,12 @@ body.nav-open .nav-overlay {
   }
 
   :root {
-    --btn-height: 36px;
-    --btn-height-sm: 32px;
-    --btn-padding-x: 11px;
-    --btn-padding-x-sm: 8px;
-    --btn-font-size: 0.83rem;
-    --btn-font-size-sm: 0.74rem;
+    --btn-height: 34px;
+    --btn-height-sm: 30px;
+    --btn-padding-x: 9px;
+    --btn-padding-x-sm: 7px;
+    --btn-font-size: 0.78rem;
+    --btn-font-size-sm: 0.7rem;
   }
 
   .modal {
@@ -1622,10 +1632,12 @@ body.nav-open .nav-overlay {
 
   #btn-nav-toggle,
   #btn-open-ticket {
-    width: 100%;
+    width: auto;
+    min-width: 0;
   }
 
   .topbar-actions {
+    grid-template-columns: 1fr;
     gap: 8px;
   }
 
@@ -1635,6 +1647,17 @@ body.nav-open .nav-overlay {
   .quick-actions .btn {
     padding-top: 6px;
     padding-bottom: 6px;
+  }
+
+  .topbar-actions .btn {
+    width: auto;
+    justify-self: start;
+  }
+
+  .quick-actions .btn {
+    min-width: 0;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 }
 
