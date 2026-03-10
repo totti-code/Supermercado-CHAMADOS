@@ -438,10 +438,10 @@ function renderDashboard() {
 
   el.content.innerHTML = `
     <article class="cards-grid dashboard-kpis">
-      <section class="kpi kpi-open"><span class="kpi-dot"></span><strong>${kpi.aberto}</strong><span>Abertos</span><small>Pendentes de atendimento</small></section>
-      <section class="kpi kpi-progress"><span class="kpi-dot"></span><strong>${kpi.andamento}</strong><span>Em andamento</span><small>Chamados em execução</small></section>
-      <section class="kpi kpi-done"><span class="kpi-dot"></span><strong>${kpi.resolvido}</strong><span>Resolvidos</span><small>Finalizados com sucesso</small></section>
-      <section class="kpi kpi-total"><span class="kpi-dot"></span><strong>${all.length}</strong><span>Total</span><small>Base geral de chamados</small></section>
+      <button type="button" class="kpi kpi-open" data-kpi-target="open"><span class="kpi-dot"></span><strong>${kpi.aberto}</strong><span>Abertos</span><small>Pendentes de atendimento</small></button>
+      <button type="button" class="kpi kpi-progress" data-kpi-target="progress"><span class="kpi-dot"></span><strong>${kpi.andamento}</strong><span>Em andamento</span><small>Chamados em execução</small></button>
+      <button type="button" class="kpi kpi-done" data-kpi-target="resolved"><span class="kpi-dot"></span><strong>${kpi.resolvido}</strong><span>Resolvidos</span><small>Finalizados com sucesso</small></button>
+      <button type="button" class="kpi kpi-total" data-kpi-target="all"><span class="kpi-dot"></span><strong>${all.length}</strong><span>Total</span><small>Base geral de chamados</small></button>
     </article>
 
     <section class="dashboard-main">
@@ -541,6 +541,34 @@ function renderDashboard() {
       </aside>
     </section>
   `;
+
+  el.content.querySelectorAll('[data-kpi-target]').forEach(card => {
+    card.addEventListener('click', async () => {
+      const target = card.dataset.kpiTarget;
+      state.adminUi.tickets.filters = {
+        store: '',
+        checkout: '',
+        type: '',
+        status: '',
+        priority: ''
+      };
+
+      if (target === 'open') {
+        state.adminUi.tickets.tab = 'active';
+        state.adminUi.tickets.filters.status = 'aberto';
+      } else if (target === 'progress') {
+        state.adminUi.tickets.tab = 'active';
+        state.adminUi.tickets.filters.status = 'em_andamento';
+      } else if (target === 'resolved') {
+        state.adminUi.tickets.tab = 'history';
+        state.adminUi.tickets.filters.status = 'resolvido';
+      } else {
+        state.adminUi.tickets.tab = 'active';
+      }
+
+      await openCurrentView('tickets');
+    });
+  });
 
   if (canCreateTickets) {
     const storeSelect = document.getElementById('quick-ticket-store');
