@@ -299,7 +299,15 @@ function openCustomDialog({
   });
 }
 
+function hasBlockingDialogOpen() {
+  return [...document.querySelectorAll('dialog[open]')].some(dialog => dialog !== el.customDialog);
+}
+
 async function showConfirmDialog({ title, message, confirmText = 'Confirmar', confirmClass = 'btn btn-primary' }) {
+  if (hasBlockingDialogOpen()) {
+    const fallbackMessage = [title, message].filter(Boolean).join('\n\n');
+    return window.confirm(fallbackMessage || confirmText);
+  }
   const result = await openCustomDialog({
     title,
     message,
