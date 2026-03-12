@@ -310,6 +310,20 @@ async function showConfirmDialog({ title, message, confirmText = 'Confirmar', co
   return result.confirmed;
 }
 
+async function confirmAction({
+  title,
+  message,
+  confirmText = 'Confirmar',
+  confirmClass = 'btn btn-primary'
+}) {
+  return showConfirmDialog({
+    title,
+    message,
+    confirmText,
+    confirmClass
+  });
+}
+
 function initCustomDialog() {
   if (!el.customDialog || !el.customDialogForm) return;
 
@@ -895,6 +909,12 @@ function renderDashboard() {
       if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
         return showToast('Preencha os campos obrigatórios', 'error');
       }
+      const confirmed = await confirmAction({
+        title: 'Abrir chamado',
+        message: `Confirmar abertura do chamado "${payload.titulo}"?`,
+        confirmText: 'Abrir chamado'
+      });
+      if (!confirmed) return;
       const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
       if (!inserted) return;
       showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
@@ -1320,12 +1340,24 @@ function renderStores() {
     }
 
     if (editing) {
+      const confirmed = await confirmAction({
+        title: 'Salvar edição da loja',
+        message: `Confirmar atualização da loja ${nome}?`,
+        confirmText: 'Salvar alterações'
+      });
+      if (!confirmed) return;
       const updated = await safeQuery(
         sb.from('lojas').update({ nome, codigo, observacao }).eq('id', editing.id).select().single()
       );
       if (!updated) return;
       showToast('Loja atualizada com sucesso.');
     } else {
+      const confirmed = await confirmAction({
+        title: 'Cadastrar loja',
+        message: `Confirmar cadastro da loja ${nome}?`,
+        confirmText: 'Cadastrar loja'
+      });
+      if (!confirmed) return;
       const created = await safeQuery(
         sb.from('lojas').insert({ nome, codigo, observacao }).select().single()
       );
@@ -1416,6 +1448,13 @@ function renderCheckouts() {
         return;
       }
 
+      const confirmed = await confirmAction({
+        title: 'Cadastrar equipamento/setor',
+        message: `Confirmar cadastro de ${nome.trim()} para ${inserts.length} loja(s)?`,
+        confirmText: 'Cadastrar'
+      });
+      if (!confirmed) return;
+
       const created = await safeQuery(sb.from('caixas').insert(inserts).select());
       if (!created) return;
       showToast(`Equipamento/setor cadastrado para ${created.length} loja(s).`);
@@ -1438,6 +1477,12 @@ function renderCheckouts() {
       const relatedIds = state.lookups.checkouts
         .filter(c => checkoutKey(c.nome, c.setor) === oldKey)
         .map(c => c.id);
+      const confirmed = await confirmAction({
+        title: 'Salvar edição do equipamento/setor',
+        message: `Confirmar atualização de ${row.nome} para ${nome.trim()}?`,
+        confirmText: 'Salvar alterações'
+      });
+      if (!confirmed) return;
       const updated = await safeQuery(sb.from('caixas').update({ nome, setor }).in('id', relatedIds).select());
       if (!updated) return;
       showToast(`Equipamento/setor atualizado em ${updated.length} loja(s).`);
@@ -1608,12 +1653,24 @@ function renderTypes() {
     }
 
     if (editing) {
+      const confirmed = await confirmAction({
+        title: 'Salvar edição do tipo',
+        message: `Confirmar atualização do tipo ${nome}?`,
+        confirmText: 'Salvar alterações'
+      });
+      if (!confirmed) return;
       const updated = await safeQuery(
         sb.from('tipos_chamado').update({ nome, descricao }).eq('id', editing.id).select().single()
       );
       if (!updated) return;
       showToast('Tipo de chamado atualizado com sucesso.');
     } else {
+      const confirmed = await confirmAction({
+        title: 'Cadastrar tipo de chamado',
+        message: `Confirmar cadastro do tipo ${nome}?`,
+        confirmText: 'Cadastrar tipo'
+      });
+      if (!confirmed) return;
       const created = await safeQuery(
         sb.from('tipos_chamado').insert({ nome, descricao }).select().single()
       );
@@ -1719,6 +1776,13 @@ function renderUsers() {
       const loja = result.values.loja;
       if (!nome || !email || !senha || senha.length < 6) return;
 
+      const confirmed = await confirmAction({
+        title: 'Criar usuário',
+        message: `Confirmar criação do usuário ${nome}?`,
+        confirmText: 'Criar usuário'
+      });
+      if (!confirmed) return;
+
       const createClient = supabase.createClient(window.APP_CONFIG.supabaseUrl, window.APP_CONFIG.supabaseAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
       });
@@ -1783,6 +1847,12 @@ function renderUsers() {
       const perfil = result.values.perfil || row.perfil;
       const loja = result.values.loja;
       const ativo = result.values.ativo === 'true';
+      const confirmed = await confirmAction({
+        title: 'Salvar edição do usuário',
+        message: `Confirmar atualização do usuário ${nome}?`,
+        confirmText: 'Salvar alterações'
+      });
+      if (!confirmed) return;
       await safeQuery(
         sb.from('usuarios').update({
           nome,
@@ -1886,6 +1956,12 @@ function renderSettings() {
     e.preventDefault();
     const nome = document.getElementById('settings-name').value.trim();
     if (!nome) return showToast('Informe o nome', 'error');
+    const confirmed = await confirmAction({
+      title: 'Salvar perfil',
+      message: `Confirmar atualização do seu nome para ${nome}?`,
+      confirmText: 'Salvar perfil'
+    });
+    if (!confirmed) return;
     await safeQuery(sb.from('usuarios').update({ nome }).eq('id', state.profile.id));
     state.profile.nome = nome;
     el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
@@ -2050,6 +2126,16 @@ async function openTicketDetails(ticketId) {
     select.value = ticket.status;
     document.getElementById('btn-change-status').addEventListener('click', async () => {
       const nextStatus = select.value;
+      if (nextStatus === ticket.status) {
+        showToast('Selecione um status diferente do atual.', 'error');
+        return;
+      }
+      const confirmed = await confirmAction({
+        title: 'Alterar status do chamado',
+        message: `Confirmar alteração do chamado ${ticket.numero_chamado || ticket.id} para "${badgeStatus(nextStatus).replace(/<[^>]+>/g, '')}"?`,
+        confirmText: 'Alterar status'
+      });
+      if (!confirmed) return;
       const updated = await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id).select().single());
       if (!updated) return;
       showToast('Status atualizado');
@@ -2092,6 +2178,12 @@ async function openTicketDetails(ticketId) {
   document.getElementById('btn-add-observation').addEventListener('click', async () => {
     const text = document.getElementById('obs-text').value.trim();
     if (!text) return showToast('Digite a observação', 'error');
+    const confirmed = await confirmAction({
+      title: 'Registrar observação',
+      message: `Confirmar registro desta observação no chamado ${ticket.numero_chamado || ticket.id}?`,
+      confirmText: 'Registrar observação'
+    });
+    if (!confirmed) return;
     await safeQuery(sb.rpc('add_ticket_observation', { p_chamado_id: ticket.id, p_texto: text }));
     showToast('Observação registrada');
     await openTicketDetails(ticket.id);
@@ -2177,6 +2269,13 @@ function setupTicketModal() {
     if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
       return showToast('Preencha os campos obrigatórios', 'error');
     }
+
+    const confirmed = await confirmAction({
+      title: 'Abrir chamado',
+      message: `Confirmar abertura do chamado "${payload.titulo}"?`,
+      confirmText: 'Abrir chamado'
+    });
+    if (!confirmed) return;
 
     const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
     if (!inserted) return;

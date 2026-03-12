@@ -4081,3 +4081,165 @@ svg {
     font-size: 0.84rem;
   }
 }
+
+/* Final light-surface form field override to prevent low-contrast inherited text */
+#details-content input,
+#details-content select,
+#details-content textarea,
+.card input,
+.card select,
+.card textarea,
+.admin-card input,
+.admin-card select,
+.admin-card textarea,
+.modal-body input,
+.modal-body select,
+.modal-body textarea,
+.topbar input,
+.topbar select,
+.topbar textarea,
+.filters input,
+.filters select,
+.filters textarea,
+.filters-admin input,
+.filters-admin select,
+.filters-admin textarea,
+.ticket-progress-panel input,
+.ticket-progress-panel select,
+.ticket-progress-panel textarea,
+.search-shell input,
+.info-item input,
+.info-item select,
+.info-item textarea {
+  color: #13261c;
+  caret-color: #13261c;
+  background: #ffffff;
+  border-color: #d4e1d8;
+}
+
+#details-content input::placeholder,
+#details-content textarea::placeholder,
+.card input::placeholder,
+.card textarea::placeholder,
+.admin-card input::placeholder,
+.admin-card textarea::placeholder,
+.modal-body input::placeholder,
+.modal-body textarea::placeholder,
+.topbar input::placeholder,
+.topbar textarea::placeholder,
+.filters input::placeholder,
+.filters textarea::placeholder,
+.filters-admin input::placeholder,
+.filters-admin textarea::placeholder,
+.ticket-progress-panel input::placeholder,
+.ticket-progress-panel textarea::placeholder,
+.search-shell input::placeholder,
+.info-item input::placeholder,
+.info-item textarea::placeholder {
+  color: #72867c;
+}
+
+#details-content input:hover,
+#details-content select:hover,
+#details-content textarea:hover,
+.card input:hover,
+.card select:hover,
+.card textarea:hover,
+.admin-card input:hover,
+.admin-card select:hover,
+.admin-card textarea:hover,
+.modal-body input:hover,
+.modal-body select:hover,
+.modal-body textarea:hover,
+.topbar input:hover,
+.topbar select:hover,
+.topbar textarea:hover,
+.filters input:hover,
+.filters select:hover,
+.filters textarea:hover,
+.filters-admin input:hover,
+.filters-admin select:hover,
+.filters-admin textarea:hover,
+.ticket-progress-panel input:hover,
+.ticket-progress-panel select:hover,
+.ticket-progress-panel textarea:hover,
+.search-shell input:hover,
+.info-item input:hover,
+.info-item select:hover,
+.info-item textarea:hover {
+  background: #ffffff;
+  border-color: #bdd0c4;
+}
+
+#details-content input:focus,
+#details-content select:focus,
+#details-content textarea:focus,
+.card input:focus,
+.card select:focus,
+.card textarea:focus,
+.admin-card input:focus,
+.admin-card select:focus,
+.admin-card textarea:focus,
+.modal-body input:focus,
+.modal-body select:focus,
+.modal-body textarea:focus,
+.topbar input:focus,
+.topbar select:focus,
+.topbar textarea:focus,
+.filters input:focus,
+.filters select:focus,
+.filters textarea:focus,
+.filters-admin input:focus,
+.filters-admin select:focus,
+.filters-admin textarea:focus,
+.ticket-progress-panel input:focus,
+.ticket-progress-panel select:focus,
+.ticket-progress-panel textarea:focus,
+.search-shell input:focus,
+.info-item input:focus,
+.info-item select:focus,
+.info-item textarea:focus {
+  color: #13261c;
+  background: #ffffff;
+  border-color: rgba(31, 122, 61, 0.4);
+}
+
+.auth-card input,
+.auth-card select,
+.auth-card textarea,
+#login-form input,
+#register-form input {
+  color: #13261c;
+  caret-color: #13261c;
+  background: #ffffff;
+  border-color: #d4e1d8;
+}
+
+.auth-card input::placeholder,
+.auth-card textarea::placeholder,
+#login-form input::placeholder,
+#register-form input::placeholder {
+  color: #72867c;
+}
+
+.auth-card input:hover,
+.auth-card select:hover,
+.auth-card textarea:hover,
+#login-form input:hover,
+#register-form input:hover {
+  color: #13261c;
+  background: #ffffff;
+  border-color: #bdd0c4;
+}
+
+.auth-card input:focus,
+.auth-card select:focus,
+.auth-card textarea:focus,
+#login-form input:focus,
+#register-form input:focus {
+  color: #13261c;
+  caret-color: #13261c;
+  background: #ffffff;
+  border-color: rgba(31, 122, 61, 0.4);
+  box-shadow: 0 0 0 4px rgba(31, 122, 61, 0.12);
+}
