@@ -143,6 +143,38 @@ as $$
   select u.loja_id from public.usuarios u where u.id = auth.uid();
 $$;
 
+create or replace function public.get_global_open_ticket_count()
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)
+  from public.chamados c
+  where c.status = 'aberto';
+$$;
+
+create or replace function public.get_my_open_ticket_queue_positions()
+returns table (ticket_id bigint, queue_position bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with ordered_queue as (
+    select
+      c.id as ticket_id,
+      c.usuario_id,
+      row_number() over (order by c.created_at asc, c.id asc) as queue_position
+    from public.chamados c
+    where c.status = 'aberto'
+  )
+  select oq.ticket_id, oq.queue_position
+  from ordered_queue oq
+  where oq.usuario_id = auth.uid();
+$$;
+
 create or replace function public.log_chamado_update()
 returns trigger
 language plpgsql
@@ -291,6 +323,10 @@ END $$;
 create policy lojas_select_auth on public.lojas
 for select to authenticated
 using (ativo = true or public.is_admin());
+
+create policy lojas_select_anon on public.lojas
+for select to anon
+using (true);
 
 create policy lojas_admin_all on public.lojas
 for all to authenticated

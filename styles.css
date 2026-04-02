@@ -4243,3 +4243,123 @@ svg {
   border-color: rgba(31, 122, 61, 0.4);
   box-shadow: 0 0 0 4px rgba(31, 122, 61, 0.12);
 }
+
+#menu-nav {
+  align-content: start;
+}
+
+.nav-group {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-group + .nav-group {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.nav-group-title {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(239, 248, 242, 0.7);
+}
+
+.nav-group-items {
+  display: grid;
+  gap: 8px;
+}
+
+.quick-actions {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@media (min-width: 981px) {
+  .sidebar {
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    align-content: start;
+    align-items: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  #menu-nav {
+    display: grid;
+    min-height: auto;
+    overflow: visible;
+    padding-right: 6px;
+    padding-bottom: 12px;
+  }
+
+  .nav-group {
+    display: grid;
+  }
+
+  .quick-actions {
+    position: static;
+    z-index: auto;
+    margin-top: 4px;
+    padding-top: 14px;
+    background: none;
+  }
+}
+
+/* Mobile nav hardening: keep longer admin labels inside the drawer */
+@media (max-width: 980px) {
+  .sidebar {
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    align-content: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #menu-nav {
+    min-height: auto;
+    overflow: visible;
+    padding-bottom: 12px;
+  }
+
+  .nav-btn {
+    justify-content: flex-start;
+    align-items: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-align: left;
+    line-height: 1.25;
+  }
+
+  .nav-btn::after {
+    flex: 0 0 auto;
+    align-self: center;
+  }
+
+  .nav-group + .nav-group,
+  .quick-actions {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .quick-actions {
+    position: static;
+    padding-bottom: 4px;
+  }
+}
+
+@media (max-width: 720px) {
+  .nav-btn {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .nav-group-title {
+    font-size: 0.72rem;
+  }
+}

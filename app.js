@@ -11,6 +11,10 @@
   },
   allTickets: [],
   tickets: [],
+  queueMetrics: {
+    globalOpenCount: 0,
+    myPositions: {}
+  },
   charts: {},
   isSigningOut: false,
   adminUi: {
@@ -49,6 +53,17 @@ const MENU_FUNC = [
   { id: 'dashboard', label: 'Meu painel' },
   { id: 'tickets', label: 'Meus chamados' },
   { id: 'settings', label: 'Configurações' }
+];
+
+const MENU_ADMIN_GROUPS = [
+  {
+    title: 'Principal',
+    items: ['dashboard', 'tickets', 'reports']
+  },
+  {
+    title: 'Administracao',
+    items: ['stores', 'checkouts', 'types', 'users', 'settings']
+  }
 ];
 
 const el = {
@@ -500,13 +515,23 @@ async function loadLookups() {
   hydrateStoreSelects();
 }
 
+async function loadPublicRegisterStores() {
+  const stores = await safeQuery(sb.from('lojas').select('id,nome').order('nome'));
+  state.lookups.stores = stores || [];
+  hydrateStoreSelects();
+}
+
 function hydrateStoreSelects() {
   const storeOptions = ['<option value="">Selecione</option>']
     .concat(state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`))
     .join('');
+  const registerStoreOptions = ['<option value="">Selecione uma loja</option>']
+    .concat(state.lookups.stores.map(store => `<option value="${store.id}">${store.nome}</option>`))
+    .join('');
 
   document.getElementById('ticket-store').innerHTML = storeOptions;
-  document.getElementById('register-store').innerHTML = `<option value="">Sem vínculo</option>${state.lookups.stores.map(s => `<option value="${s.id}">${s.nome}</option>`).join('')}`;
+  document.getElementById('register-store').innerHTML = registerStoreOptions;
+  document.getElementById('register-store').disabled = !state.lookups.stores.length;
 
   document.getElementById('ticket-type').innerHTML = state.lookups.types
     .filter(t => t.ativo)
@@ -670,6 +695,31 @@ function bindFilterAccordions(scope = document) {
 
 function mountMenu() {
   state.menu = isAdmin() ? MENU_ADMIN : MENU_FUNC;
+  if (!el.menuNav) return;
+
+  if (isAdmin()) {
+    const byId = new Map(state.menu.map(item => [item.id, item]));
+    el.menuNav.innerHTML = MENU_ADMIN_GROUPS.map(group => {
+      const items = group.items
+        .map(id => byId.get(id))
+        .filter(Boolean)
+        .map(item => `<button class="nav-btn ${item.id === state.currentView ? 'active' : ''}" data-view="${item.id}">${item.label}</button>`)
+        .join('');
+
+      if (!items) return '';
+
+      return `
+        <section class="nav-group" aria-label="${group.title}">
+          <p class="nav-group-title">${group.title}</p>
+          <div class="nav-group-items">
+            ${items}
+          </div>
+        </section>
+      `;
+    }).join('');
+    return;
+  }
+
   el.menuNav.innerHTML = state.menu
     .map(item => `<button class="nav-btn ${item.id === state.currentView ? 'active' : ''}" data-view="${item.id}">${item.label}</button>`)
     .join('');
@@ -703,6 +753,31 @@ async function fetchTickets(filters = {}) {
   return state.tickets;
 }
 
+async function loadQueueMetrics() {
+  if (!state.profile) return;
+
+  if (isAdmin()) {
+    const queue = getOpenQueueTickets();
+    state.queueMetrics.globalOpenCount = queue.length;
+    state.queueMetrics.myPositions = Object.fromEntries(
+      queue
+        .filter(ticket => String(ticket.usuario_id) === String(state.profile?.id))
+        .map((ticket, index) => [String(ticket.id), index + 1])
+    );
+    return;
+  }
+
+  const [globalCountResult, myPositionsResult] = await Promise.all([
+    safeQuery(sb.rpc('get_global_open_ticket_count')),
+    safeQuery(sb.rpc('get_my_open_ticket_queue_positions'))
+  ]);
+
+  state.queueMetrics.globalOpenCount = Number(globalCountResult || 0);
+  state.queueMetrics.myPositions = Object.fromEntries(
+    (myPositionsResult || []).map(row => [String(row.ticket_id), Number(row.queue_position)])
+  );
+}
+
 function getTicketRowsForView() {
   const source = state.allTickets.length ? state.allTickets : state.tickets;
   const ticketUi = state.adminUi.tickets;
@@ -720,10 +795,41 @@ function getTicketRowsForView() {
   });
 }
 
+function getOpenQueueTickets() {
+  const source = state.allTickets.length ? state.allTickets : state.tickets;
+  return source
+    .filter(ticket => ticket.status === 'aberto')
+    .slice()
+    .sort((a, b) => {
+      const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return Number(a.id) - Number(b.id);
+    });
+}
+
+function getTicketQueuePosition(ticketId) {
+  if (!isAdmin() && state.queueMetrics.myPositions) {
+    const mappedPosition = state.queueMetrics.myPositions[String(ticketId)];
+    if (mappedPosition) return mappedPosition;
+  }
+  const queue = getOpenQueueTickets();
+  const index = queue.findIndex(ticket => String(ticket.id) === String(ticketId));
+  return index >= 0 ? index + 1 : null;
+}
+
+function renderQueueInfo(ticket) {
+  const position = getTicketQueuePosition(ticket.id);
+  if (!position) return ticket.status === 'aberto' ? 'Aguardando posição' : 'Fora da fila';
+  return `${position}º na fila`;
+}
+
 function renderDashboard() {
   const all = state.allTickets.length ? state.allTickets : state.tickets;
   const activeTickets = all.filter(x => !isCompletedStatus(x.status));
   const canCreateTickets = !isAdmin();
+  const openQueue = getOpenQueueTickets();
+  const myQueuePositions = Object.values(state.queueMetrics.myPositions || {}).map(Number).filter(Boolean).sort((a, b) => a - b);
+  const nextMyPosition = myQueuePositions[0] || null;
   const kpi = {
     aberto: all.filter(x => x.status === 'aberto').length,
     andamento: all.filter(x => x.status === 'em_andamento').length,
@@ -780,14 +886,6 @@ function renderDashboard() {
               <label>Tipo de chamado*
                 <select id="quick-ticket-type" required>${types}</select>
               </label>
-              <label>Prioridade*
-                <select id="quick-ticket-priority" required>
-                  <option value="baixa">Baixa</option>
-                  <option value="media" selected>Média</option>
-                  <option value="alta">Alta</option>
-                  <option value="critica">Crítica</option>
-                </select>
-              </label>
               <label>Status
                 <select id="quick-ticket-status" disabled>
                   <option value="aberto" selected>Aberto</option>
@@ -799,6 +897,23 @@ function renderDashboard() {
               <button type="button" id="btn-open-ticket-modal" class="btn btn-ghost btn-sm">Modo completo</button>
             </footer>
           </form>
+        </article>
+        <article class="card">
+          <div class="card-title-row">
+            <div>
+              <h3>Fila de atendimento</h3>
+              <p>Veja quantos chamados abertos existem no sistema e a posição do seu próximo atendimento.</p>
+            </div>
+          </div>
+          <div class="entity-card entity-card-ticket">
+            <div class="entity-card-content">
+              ${renderInfoGrid([
+                ['CHAMADOS EM ABERTO(GERAL)', String(state.queueMetrics.globalOpenCount || openQueue.length)],
+                ['Seus chamados abertos', String(myQueuePositions.length)],
+                ['Próxima posição', nextMyPosition ? `${nextMyPosition}º na fila` : 'Sem chamados na fila']
+              ])}
+            </div>
+          </div>
         </article>
       ` : `
         <article class="card ticket-form-card">
@@ -908,7 +1023,7 @@ function renderDashboard() {
         usuario_id: state.profile.id,
         titulo: document.getElementById('quick-ticket-title').value.trim(),
         descricao: document.getElementById('quick-ticket-description').value.trim(),
-        prioridade: document.getElementById('quick-ticket-priority').value,
+        prioridade: 'baixa',
         anexo_url: null,
         telefone_retorno: null,
         responsavel_local: null,
@@ -977,7 +1092,8 @@ function ticketTable(rows) {
         <div class="entity-card-content">
           ${renderInfoGrid([
             ['Solicitante', r.usuario?.nome || '-'],
-            ['Abertura', fmtDate(r.created_at)]
+            ['Abertura', fmtDate(r.created_at)],
+            ['Fila', renderQueueInfo(r)]
           ])}
         </div>
         <footer class="entity-card-actions">
@@ -2037,7 +2153,7 @@ async function openTicketDetails(ticketId) {
   const statusActions = isAdmin()
     ? `<div class="ticket-progress-panel">
         <h3>Progresso do chamado</h3>
-        <p>Apenas administradores podem atualizar o andamento. Quando o chamado for concluído, ele aparecerá na aba Histórico.</p>
+        <p>Apenas administradores podem atualizar o andamento e definir a prioridade. Quando o chamado for concluído, ele aparecerá na aba Histórico.</p>
         <div class="toolbar">
         <select id="ticket-status-update">
           <option value="aberto">Aberto</option>
@@ -2046,6 +2162,12 @@ async function openTicketDetails(ticketId) {
           <option value="resolvido">Resolvido</option>
           <option value="fechado">Fechado</option>
           <option value="cancelado">Cancelado</option>
+        </select>
+        <select id="ticket-priority-update">
+          <option value="baixa">Baixa</option>
+          <option value="media">Média</option>
+          <option value="alta">Alta</option>
+          <option value="critica">Crítica</option>
         </select>
         <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
         </div>
@@ -2081,6 +2203,7 @@ async function openTicketDetails(ticketId) {
           <div class="info-item"><span>Equipamentos/Setor</span><strong>${ticket.caixa?.nome || '-'}</strong></div>
           <div class="info-item"><span>Tipo</span><strong>${ticket.tipo?.nome || '-'}</strong></div>
           <div class="info-item"><span>Solicitante</span><strong>${ticket.usuario?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Fila atual</span><strong>${renderQueueInfo(ticket)}</strong></div>
           <div class="info-item"><span>Abertura</span><strong>${fmtDate(ticket.created_at)}</strong></div>
           <div class="info-item"><span>Anexo</span><strong>${ticket.anexo_url ? `<a href="${ticket.anexo_url}" target="_blank">Ver anexo</a>` : '-'}</strong></div>
         </div>
@@ -2130,23 +2253,28 @@ async function openTicketDetails(ticketId) {
   });
 
   if (isAdmin()) {
-    const select = document.getElementById('ticket-status-update');
-    select.value = ticket.status;
+    const statusSelect = document.getElementById('ticket-status-update');
+    const prioritySelect = document.getElementById('ticket-priority-update');
+    statusSelect.value = ticket.status;
+    prioritySelect.value = ticket.prioridade || 'baixa';
     document.getElementById('btn-change-status').addEventListener('click', async () => {
-      const nextStatus = select.value;
-      if (nextStatus === ticket.status) {
-        showToast('Selecione um status diferente do atual.', 'error');
+      const nextStatus = statusSelect.value;
+      const nextPriority = prioritySelect.value;
+      if (nextStatus === ticket.status && nextPriority === (ticket.prioridade || 'baixa')) {
+        showToast('Altere o status ou a prioridade antes de salvar.', 'error');
         return;
       }
       const confirmed = await confirmAction({
-        title: 'Alterar status do chamado',
-        message: `Confirmar alteração do chamado ${ticket.numero_chamado || ticket.id} para "${badgeStatus(nextStatus).replace(/<[^>]+>/g, '')}"?`,
-        confirmText: 'Alterar status'
+        title: 'Atualizar chamado',
+        message: `Confirmar atualização do chamado ${ticket.numero_chamado || ticket.id}?`,
+        confirmText: 'Salvar alterações'
       });
       if (!confirmed) return;
-      const updated = await safeQuery(sb.from('chamados').update({ status: nextStatus }).eq('id', ticket.id).select().single());
+      const updated = await safeQuery(
+        sb.from('chamados').update({ status: nextStatus, prioridade: nextPriority }).eq('id', ticket.id).select().single()
+      );
       if (!updated) return;
-      showToast('Status atualizado');
+      showToast('Chamado atualizado');
       if (el.detailsModal.open) {
         el.detailsModal.close();
       }
@@ -2217,6 +2345,7 @@ async function openTicketDetails(ticketId) {
 async function reloadAll() {
   await loadLookups();
   await fetchTickets();
+  await loadQueueMetrics();
 }
 
 function setupTicketModal() {
@@ -2267,7 +2396,7 @@ function setupTicketModal() {
       usuario_id: state.profile.id,
       titulo: document.getElementById('ticket-title').value.trim(),
       descricao: document.getElementById('ticket-description').value.trim(),
-      prioridade: document.getElementById('ticket-priority').value,
+      prioridade: 'baixa',
       anexo_url: document.getElementById('ticket-attachment').value.trim() || null,
       telefone_retorno: null,
       responsavel_local: null,
@@ -2341,7 +2470,7 @@ async function bootApp(session) {
   showAppScreen();
   el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
   if (el.btnAdminQuick) {
-    el.btnAdminQuick.classList.toggle('hidden', !isAdmin());
+    el.btnAdminQuick.classList.toggle('hidden', isAdmin());
   }
   if (el.btnOpenTicket) {
     el.btnOpenTicket.classList.toggle('hidden', isAdmin());
@@ -2378,7 +2507,11 @@ function bootAuth() {
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
     const perfil = 'funcionario';
-    const loja_id = document.getElementById('register-store').value || null;
+    const loja_id = document.getElementById('register-store').value;
+
+    if (!loja_id) {
+      return showToast('Selecione uma loja para concluir o cadastro.', 'error');
+    }
 
     const { error } = await sb.auth.signUp({
       email,
@@ -2387,7 +2520,7 @@ function bootAuth() {
         data: {
           nome,
           perfil,
-          loja_id: loja_id ? Number(loja_id) : null
+          loja_id: Number(loja_id)
         }
       }
     });
@@ -2498,12 +2631,12 @@ async function init() {
   syncMenuState();
   el.authView.classList.add('hidden');
   el.appView.classList.add('hidden');
-  await loadLookups();
 
   const { data } = await sb.auth.getSession();
   if (data.session) {
     await bootApp(data.session);
   } else {
+    await loadPublicRegisterStores();
     showAuthScreen();
   }
 

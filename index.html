@@ -51,8 +51,8 @@
         <label>Perfil
           <input value="Funcionário" disabled />
         </label>
-        <label>Loja (opcional)
-          <select id="register-store"></select>
+        <label>Loja*
+          <select id="register-store" required></select>
         </label>
         <button type="submit" class="btn btn-primary">Cadastrar</button>
         <button type="button" id="btn-go-login" class="btn btn-ghost">Voltar para login</button>
@@ -116,14 +116,6 @@
       <div class="grid-2">
         <label>Tipo*
           <select id="ticket-type" required></select>
-        </label>
-        <label>Prioridade*
-          <select id="ticket-priority" required>
-            <option value="baixa">Baixa</option>
-            <option value="media" selected>Média</option>
-            <option value="alta">Alta</option>
-            <option value="critica">Crítica</option>
-          </select>
         </label>
       </div>
       <label>Título*
