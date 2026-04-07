@@ -286,6 +286,7 @@ function showAppScreen() {
 function clearClientSessionState() {
   state.session = null;
   state.profile = null;
+  state.ticketWhatsAppTarget = null;
   state.currentView = 'dashboard';
   state.menu = [];
   state.allTickets = [];
@@ -815,7 +816,7 @@ function buildStartServiceWhatsAppMessage(ticket, customMessage) {
 function buildNewTicketWhatsAppMessage(ticket) {
   const ticketNumber = ticket.numero_chamado || ticket.id;
   const requesterName = ticket.usuario?.nome || state.profile?.nome || 'Solicitante';
-  const requesterPhone = getTicketUserPhone(ticket) || sanitizePhoneNumber(state.profile?.telefone);
+  const requesterPhone = getTicketUserPhone(ticket) || normalizeWhatsAppNumber(state.profile?.telefone);
   const storeName = ticket.loja?.nome || 'Loja não informada';
   const checkoutName = ticket.caixa?.nome || 'Equipamento/Setor não informado';
   const checkoutSector = ticket.caixa?.setor ? ` (${ticket.caixa.setor})` : '';
@@ -915,9 +916,9 @@ async function submitNewTicket(payload, { afterSuccess = null } = {}) {
   }
 
   const confirmed = await confirmAction({
-    title: 'Abrir chamado',
-    message: `Confirmar abertura do chamado "${payload.titulo}"?`,
-    confirmText: 'Abrir chamado'
+    title: 'Enviar WhatsApp',
+    message: `O chamado só será salvo após o envio do WhatsApp.\n\nConfirmar envio do chamado "${payload.titulo}"?`,
+    confirmText: 'Enviar WhatsApp'
   });
   if (!confirmed) return false;
 
@@ -1770,7 +1771,6 @@ function renderDashboard() {
         status: 'aberto'
       };
       await submitNewTicket(payload, {
-        sendWhatsApp: true,
         afterSuccess: async () => {
           document.getElementById('quick-ticket-form').reset();
           if (state.profile?.loja_id) {
@@ -3190,7 +3190,6 @@ function setupTicketModal() {
       };
 
       const saved = await submitNewTicket(payload, {
-        sendWhatsApp: true,
         afterSuccess: async () => {
           el.ticketForm.reset();
           syncTicketWhatsAppOption();
@@ -3251,7 +3250,6 @@ function setupTicketModal() {
       status: 'aberto'
     };
     await submitNewTicket(payload, {
-      sendWhatsApp: true,
       afterSuccess: async () => {
         el.ticketForm.reset();
         syncTicketWhatsAppOption();

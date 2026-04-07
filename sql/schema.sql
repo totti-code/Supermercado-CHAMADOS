@@ -479,9 +479,9 @@ using (
   or usuario_id = auth.uid()
 );
 
-create policy notificacoes_whatsapp_insert_admin on public.notificacoes_whatsapp
+create policy notificacoes_whatsapp_insert_auth on public.notificacoes_whatsapp
 for insert to authenticated
-with check (public.is_admin());
+with check (enviado_por = auth.uid());
 
 -- Seed inicial das 7 lojas
 insert into public.lojas (nome, codigo)
