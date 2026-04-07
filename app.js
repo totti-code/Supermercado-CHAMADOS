@@ -652,21 +652,83 @@ function sanitizePhoneNumber(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+function normalizeWhatsAppNumber(value) {
+  let digits = sanitizePhoneNumber(value);
+  if (!digits) return '';
+
+  digits = digits.replace(/^00+/, '');
+  digits = digits.replace(/^0+/, '');
+
+  while (digits.startsWith('55') && digits.length > 13) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.startsWith('550') && digits.length >= 13) {
+    digits = `55${digits.slice(3)}`;
+  }
+
+  if (digits.length === 10 || digits.length === 11) {
+    digits = `55${digits}`;
+  }
+
+  return digits;
+}
+
+function isValidBrazilWhatsAppNumber(value) {
+  const digits = normalizeWhatsAppNumber(value);
+  return /^55\d{10,11}$/.test(digits);
+}
+
+function formatWhatsAppInputValue(value) {
+  const digits = normalizeWhatsAppNumber(value);
+  if (!digits) return '';
+
+  const country = digits.slice(0, 2);
+  const ddd = digits.slice(2, 4);
+  const number = digits.slice(4);
+
+  if (!ddd) return `+${country}`;
+  if (number.length <= 4) return `+${country} (${ddd}) ${number}`.trim();
+  if (number.length <= 8) return `+${country} (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`.trim();
+  return `+${country} (${ddd}) ${number.slice(0, 5)}-${number.slice(5, 9)}`.trim();
+}
+
+function initPhoneInputFormatting() {
+  const formatInput = input => {
+    if (!input || input.type !== 'tel') return;
+    input.value = formatWhatsAppInputValue(input.value);
+  };
+
+  document.addEventListener('input', event => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'tel') return;
+    formatInput(input);
+  });
+
+  document.addEventListener('blur', event => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'tel') return;
+    formatInput(input);
+  }, true);
+
+  document.querySelectorAll('input[type="tel"]').forEach(formatInput);
+}
+
 function formatPhoneDisplay(value) {
-  const digits = sanitizePhoneNumber(value);
+  const digits = normalizeWhatsAppNumber(value);
   return digits || '-';
 }
 
 function getTicketUserPhone(ticket) {
-  const directPhone = sanitizePhoneNumber(ticket?.usuario?.telefone);
+  const directPhone = normalizeWhatsAppNumber(ticket?.usuario?.telefone);
   if (directPhone) return directPhone;
 
   const lookupUser = state.lookups.users.find(user => String(user.id) === String(ticket?.usuario_id));
-  const lookupPhone = sanitizePhoneNumber(lookupUser?.telefone);
+  const lookupPhone = normalizeWhatsAppNumber(lookupUser?.telefone);
   if (lookupPhone) return lookupPhone;
 
   if (String(ticket?.usuario_id) === String(state.profile?.id)) {
-    const profilePhone = sanitizePhoneNumber(state.profile?.telefone);
+    const profilePhone = normalizeWhatsAppNumber(state.profile?.telefone);
     if (profilePhone) return profilePhone;
   }
 
@@ -674,7 +736,7 @@ function getTicketUserPhone(ticket) {
 }
 
 function getFixedTicketWhatsAppTarget() {
-  const phone = sanitizePhoneNumber(state.ticketWhatsAppTarget?.whatsapp_chamados_destino);
+  const phone = normalizeWhatsAppNumber(state.ticketWhatsAppTarget?.whatsapp_chamados_destino);
   if (!phone) return null;
   return {
     id: state.ticketWhatsAppTarget.id || null,
@@ -776,7 +838,7 @@ function buildNewTicketWhatsAppMessage(ticket) {
 }
 
 function buildWhatsAppUrl(phone, message) {
-  const digits = sanitizePhoneNumber(phone);
+  const digits = normalizeWhatsAppNumber(phone);
   if (!digits) return '';
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
@@ -786,7 +848,7 @@ async function logWhatsAppNotification(ticket, phone, message, status, recipient
     chamado_id: ticket.id,
     usuario_id: recipientUserId || ticket.usuario_id || null,
     enviado_por: state.profile?.id || null,
-    telefone: sanitizePhoneNumber(phone),
+    telefone: normalizeWhatsAppNumber(phone),
     mensagem: message,
     status_chamado: status
   });
@@ -2680,12 +2742,15 @@ function renderUsers() {
 
       const nome = result.values.nome;
       const email = result.values.email;
-      const telefone = sanitizePhoneNumber(result.values.telefone);
+      const telefone = normalizeWhatsAppNumber(result.values.telefone);
       const senha = result.values.senha;
       const perfil = result.values.perfil;
       const loja = result.values.loja;
       if (!nome || !email || !telefone || !senha || senha.length < 6) {
         return showToast('Preencha nome, email, telefone e uma senha válida.', 'error');
+      }
+      if (!isValidBrazilWhatsAppNumber(telefone)) {
+        return showToast('Informe um telefone válido no padrão brasileiro com DDI 55 e DDD.', 'error');
       }
 
       const confirmed = await confirmAction({
@@ -2757,11 +2822,14 @@ function renderUsers() {
       if (!result.confirmed || !result.values.nome) return;
 
       const nome = result.values.nome;
-      const telefone = sanitizePhoneNumber(result.values.telefone);
+      const telefone = normalizeWhatsAppNumber(result.values.telefone);
       const perfil = result.values.perfil || row.perfil;
       const loja = result.values.loja;
       const ativo = result.values.ativo === 'true';
       if (!telefone) return showToast('Informe um telefone válido.', 'error');
+      if (!isValidBrazilWhatsAppNumber(telefone)) {
+        return showToast('Informe um telefone válido no padrão brasileiro com DDI 55 e DDD.', 'error');
+      }
       const confirmed = await confirmAction({
         title: 'Salvar edição do usuário',
         message: `Confirmar atualização do usuário ${nome}?`,
@@ -2881,10 +2949,13 @@ function renderSettings() {
     const nome = document.getElementById('settings-name').value.trim();
     const telefone = sanitizePhoneNumber(document.getElementById('settings-phone').value);
     const whatsappChamadosDestino = isAdmin()
-      ? sanitizePhoneNumber(document.getElementById('settings-ticket-whatsapp')?.value)
+      ? normalizeWhatsAppNumber(document.getElementById('settings-ticket-whatsapp')?.value)
       : null;
     if (!nome) return showToast('Informe o nome', 'error');
     if (!telefone) return showToast('Informe o telefone / WhatsApp.', 'error');
+    if (isAdmin() && whatsappChamadosDestino && !isValidBrazilWhatsAppNumber(whatsappChamadosDestino)) {
+      return showToast('Informe um WhatsApp válido no padrão brasileiro com DDI 55 e DDD.', 'error');
+    }
     const confirmed = await confirmAction({
       title: 'Salvar perfil',
       message: `Confirmar atualização do seu nome para ${nome}?`,
@@ -3279,7 +3350,7 @@ function bootAuth() {
     e.preventDefault();
     const nome = document.getElementById('register-name').value.trim();
     const email = document.getElementById('register-email').value.trim();
-    const telefone = sanitizePhoneNumber(document.getElementById('register-phone').value);
+    const telefone = normalizeWhatsAppNumber(document.getElementById('register-phone').value);
     const password = document.getElementById('register-password').value;
     const perfil = 'funcionario';
     const loja_id = document.getElementById('register-store').value;
@@ -3290,6 +3361,9 @@ function bootAuth() {
 
     if (!telefone) {
       return showToast('Informe um telefone / WhatsApp válido para concluir o cadastro.', 'error');
+    }
+    if (!isValidBrazilWhatsAppNumber(telefone)) {
+      return showToast('Informe um telefone válido no padrão brasileiro com DDI 55 e DDD.', 'error');
     }
 
     const { error } = await sb.auth.signUp({
@@ -3432,6 +3506,7 @@ async function init() {
   if (!window.sb) return;
 
   restoreUiPrefs();
+  initPhoneInputFormatting();
   bootAuth();
   bindTopActions();
   initLogoutButton();
