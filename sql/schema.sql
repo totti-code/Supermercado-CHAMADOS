@@ -39,6 +39,7 @@ create table if not exists public.usuarios (
   id uuid primary key references auth.users(id) on delete cascade,
   nome text not null,
   email text not null unique,
+  telefone text not null,
   perfil public.user_role not null default 'funcionario',
   loja_id bigint references public.lojas(id),
   ativo boolean not null default true,
@@ -74,6 +75,17 @@ create table if not exists public.historico_chamados (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.notificacoes_whatsapp (
+  id bigint generated always as identity primary key,
+  chamado_id bigint not null references public.chamados(id) on delete cascade,
+  usuario_id uuid references public.usuarios(id) on delete set null,
+  enviado_por uuid references public.usuarios(id) on delete set null,
+  telefone text not null,
+  mensagem text not null,
+  status_chamado public.ticket_status not null,
+  created_at timestamptz not null default now()
+);
+
 -- Índices
 create index if not exists idx_caixas_loja_id on public.caixas(loja_id);
 create index if not exists idx_chamados_loja on public.chamados(loja_id);
@@ -84,6 +96,8 @@ create index if not exists idx_chamados_status on public.chamados(status);
 create index if not exists idx_chamados_prioridade on public.chamados(prioridade);
 create index if not exists idx_chamados_created_at on public.chamados(created_at desc);
 create index if not exists idx_historico_chamado on public.historico_chamados(chamado_id);
+create index if not exists idx_notificacoes_whatsapp_chamado on public.notificacoes_whatsapp(chamado_id);
+create index if not exists idx_notificacoes_whatsapp_usuario on public.notificacoes_whatsapp(usuario_id);
 create unique index if not exists uq_lojas_codigo_lower on public.lojas(lower(codigo));
 create unique index if not exists uq_tipos_nome_lower on public.tipos_chamado(lower(nome));
 
@@ -224,16 +238,18 @@ language plpgsql
 security definer
 as $$
 begin
-  insert into public.usuarios (id, nome, email, perfil)
+  insert into public.usuarios (id, nome, email, telefone, perfil)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'nome', split_part(new.email, '@', 1)),
     new.email,
+    regexp_replace(coalesce(new.raw_user_meta_data->>'telefone', ''), '\D', '', 'g'),
     coalesce((new.raw_user_meta_data->>'perfil')::public.user_role, 'funcionario')
   )
   on conflict (id) do update set
     nome = excluded.nome,
-    email = excluded.email;
+    email = excluded.email,
+    telefone = excluded.telefone;
   return new;
 end;
 $$;
@@ -309,6 +325,7 @@ alter table public.tipos_chamado enable row level security;
 alter table public.usuarios enable row level security;
 alter table public.chamados enable row level security;
 alter table public.historico_chamados enable row level security;
+alter table public.notificacoes_whatsapp enable row level security;
 
 -- Limpeza policies antigas
 DO $$
@@ -429,6 +446,17 @@ with check (
   public.is_admin()
   or usuario_id = auth.uid()
 );
+
+create policy notificacoes_whatsapp_select_access on public.notificacoes_whatsapp
+for select to authenticated
+using (
+  public.is_admin()
+  or usuario_id = auth.uid()
+);
+
+create policy notificacoes_whatsapp_insert_admin on public.notificacoes_whatsapp
+for insert to authenticated
+with check (public.is_admin());
 
 -- Seed inicial das 7 lojas
 insert into public.lojas (nome, codigo)

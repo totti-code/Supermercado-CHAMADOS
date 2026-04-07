@@ -4363,3 +4363,267 @@ svg {
     font-size: 0.72rem;
   }
 }
+
+/* Toast centralizado acima de toda a interface */
+#toast-container {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.toast {
+  width: min(420px, calc(100vw - 32px));
+  min-width: 280px;
+  padding: 20px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(183, 227, 201, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)),
+    rgba(10, 24, 19, 0.98);
+  color: #f3fff7;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.toast.error {
+  border-color: rgba(231, 124, 136, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    rgba(90, 24, 31, 0.98);
+  color: #fff1f3;
+}
+
+@media (max-width: 720px) {
+  #toast-container {
+    padding: 18px;
+  }
+
+  .toast {
+    width: min(100%, 360px);
+    min-width: 0;
+    padding: 18px 16px;
+    font-size: 0.96rem;
+  }
+}
+
+.toast-dialog {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+}
+
+.toast-dialog::backdrop {
+  background: transparent;
+}
+
+.toast-dialog[open] {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+
+.toast-dialog-body {
+  width: min(420px, calc(100vw - 32px));
+  min-width: 280px;
+  padding: 20px 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(183, 227, 201, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)),
+    rgba(10, 24, 19, 0.98);
+  color: #f3fff7;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.toast-dialog-body.error {
+  border-color: rgba(231, 124, 136, 0.28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    rgba(90, 24, 31, 0.98);
+  color: #fff1f3;
+}
+
+.toast-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .toast-dialog-body {
+    width: min(100%, 360px);
+    min-width: 0;
+    padding: 18px 16px;
+    font-size: 0.96rem;
+  }
+}
+
+/* Tabs e filtros com visual mais claro */
+.ticket-tabs,
+.details-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    rgba(8, 16, 29, 0.8);
+  border: 1px solid rgba(126, 158, 201, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.ticket-tab,
+.details-tab {
+  flex: 1 1 220px;
+  min-height: 52px;
+  padding: 12px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(126, 158, 201, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008)),
+    rgba(14, 24, 39, 0.9);
+  color: #d8e6fb;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: none;
+}
+
+.ticket-tab:hover,
+.details-tab:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012)),
+    rgba(18, 31, 49, 0.94);
+  border-color: rgba(122, 173, 236, 0.28);
+}
+
+.ticket-tab.active,
+.details-tab.active {
+  color: #031321;
+  background: linear-gradient(135deg, #8ee0ff 0%, #50aefe 100%);
+  border-color: transparent;
+  box-shadow: 0 16px 32px rgba(59, 144, 233, 0.28);
+}
+
+.filter-accordion {
+  margin-top: 14px;
+}
+
+.filter-accordion-toggle {
+  min-height: 50px;
+  border-radius: 16px;
+  border: 1px solid rgba(126, 158, 201, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    rgba(8, 16, 29, 0.8);
+  font-weight: 800;
+  color: #e6f0ff;
+}
+
+.filter-accordion-inner {
+  padding-top: 14px;
+}
+
+.filters,
+.filters-admin {
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008)),
+    rgba(9, 18, 31, 0.82);
+  border: 1px solid rgba(126, 158, 201, 0.14);
+}
+
+.filter-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-field span {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8fa8cc;
+}
+
+.filters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.filters-actions .btn {
+  min-width: 150px;
+}
+
+@media (max-width: 980px) {
+  .ticket-tab,
+  .details-tab {
+    flex-basis: calc(50% - 10px);
+  }
+
+  .filters,
+  .filters-admin {
+    padding: 14px;
+  }
+
+  .filters-actions {
+    width: 100%;
+  }
+
+  .filters-actions .btn {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .ticket-tabs,
+  .details-tabs {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .ticket-tab,
+  .details-tab {
+    flex-basis: 100%;
+    min-height: 48px;
+    padding: 11px 14px;
+  }
+
+  .filter-accordion-toggle {
+    min-height: 48px;
+  }
+}

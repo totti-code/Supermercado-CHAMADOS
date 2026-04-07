@@ -88,6 +88,8 @@ const el = {
   btnNavToggle: document.getElementById('btn-nav-toggle'),
   btnNavClose: document.getElementById('btn-nav-close'),
   navOverlay: document.getElementById('nav-overlay'),
+  toastDialog: document.getElementById('toast-dialog'),
+  toastDialogBody: document.getElementById('toast-dialog-body'),
   customDialog: document.getElementById('custom-dialog'),
   customDialogForm: document.getElementById('custom-dialog-form'),
   customDialogTitle: document.getElementById('custom-dialog-title'),
@@ -102,6 +104,17 @@ const customDialogState = {
   fields: [],
   result: { confirmed: false, values: {} }
 };
+
+let toastTimer = null;
+
+function getTopOpenDialog() {
+  const openDialogs = [...document.querySelectorAll('dialog[open]')];
+  return openDialogs.length ? openDialogs[openDialogs.length - 1] : null;
+}
+
+function removeToastOverlays() {
+  document.querySelectorAll('.toast-modal-overlay').forEach(node => node.remove());
+}
 
 function showAuthScreen() {
   document.body.classList.remove('nav-open', 'nav-desktop');
@@ -190,6 +203,47 @@ function initLogoutButton() {
 }
 
 function showToast(msg, type = 'ok') {
+  if (toastTimer) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+
+  removeToastOverlays();
+
+  const topDialog = getTopOpenDialog();
+  if (topDialog) {
+    const overlay = document.createElement('div');
+    overlay.className = 'toast-modal-overlay';
+
+    const node = document.createElement('div');
+    node.className = `toast ${type === 'error' ? 'error' : ''}`;
+    node.textContent = msg;
+
+    overlay.appendChild(node);
+    topDialog.appendChild(overlay);
+
+    toastTimer = window.setTimeout(() => {
+      overlay.remove();
+    }, 3500);
+    return;
+  }
+
+  if (el.toastDialog && el.toastDialogBody) {
+    el.toastDialogBody.className = `toast-dialog-body ${type === 'error' ? 'error' : 'ok'}`;
+    el.toastDialogBody.textContent = msg;
+
+    if (!el.toastDialog.open) {
+      el.toastDialog.show();
+    }
+
+    toastTimer = window.setTimeout(() => {
+      if (el.toastDialog.open) {
+        el.toastDialog.close();
+      }
+    }, 3500);
+    return;
+  }
+
   const container = document.getElementById('toast-container');
   const node = document.createElement('div');
   node.className = `toast ${type === 'error' ? 'error' : ''}`;
@@ -314,15 +368,7 @@ function openCustomDialog({
   });
 }
 
-function hasBlockingDialogOpen() {
-  return [...document.querySelectorAll('dialog[open]')].some(dialog => dialog !== el.customDialog);
-}
-
 async function showConfirmDialog({ title, message, confirmText = 'Confirmar', confirmClass = 'btn btn-primary' }) {
-  if (hasBlockingDialogOpen()) {
-    const fallbackMessage = [title, message].filter(Boolean).join('\n\n');
-    return window.confirm(fallbackMessage || confirmText);
-  }
   const result = await openCustomDialog({
     title,
     message,
@@ -407,6 +453,82 @@ function isCompletedStatus(status) {
 
 function normalizeText(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function sanitizePhoneNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function formatPhoneDisplay(value) {
+  const digits = sanitizePhoneNumber(value);
+  return digits || '-';
+}
+
+function getTicketUserPhone(ticket) {
+  const directPhone = sanitizePhoneNumber(ticket?.usuario?.telefone);
+  if (directPhone) return directPhone;
+
+  const lookupUser = state.lookups.users.find(user => String(user.id) === String(ticket?.usuario_id));
+  const lookupPhone = sanitizePhoneNumber(lookupUser?.telefone);
+  if (lookupPhone) return lookupPhone;
+
+  if (String(ticket?.usuario_id) === String(state.profile?.id)) {
+    const profilePhone = sanitizePhoneNumber(state.profile?.telefone);
+    if (profilePhone) return profilePhone;
+  }
+
+  return '';
+}
+
+function buildStatusWhatsAppMessage(ticket, status) {
+  const ticketNumber = ticket.numero_chamado || ticket.id;
+  const requesterName = ticket.usuario?.nome || 'Solicitante';
+  const storeName = ticket.loja?.nome || 'Loja não informada';
+  const checkoutName = ticket.caixa?.nome || 'Equipamento/Setor não informado';
+  const checkoutSector = ticket.caixa?.setor ? ` (${ticket.caixa.setor})` : '';
+  const typeName = ticket.tipo?.nome || 'Tipo não informado';
+  const title = ticket.titulo || 'Sem título';
+  const description = ticket.descricao || 'Sem detalhes adicionais.';
+  const intro = status === 'aguardando_retorno'
+    ? 'Seu chamado está aguardando retorno.'
+    : 'Seu chamado foi marcado como resolvido.';
+  const closing = status === 'aguardando_retorno'
+    ? 'Por favor, responda esta mensagem com o retorno solicitado para continuarmos o atendimento.'
+    : 'Se precisar de mais ajuda, responda esta mensagem.';
+
+  return [
+    `Olá, ${requesterName}!`,
+    '',
+    intro,
+    '',
+    `Número: ${ticketNumber}`,
+    `Loja: ${storeName}`,
+    `Equipamento/Setor: ${checkoutName}${checkoutSector}`,
+    `Tipo: ${typeName}`,
+    `Título: ${title}`,
+    `Detalhes informados: ${description}`,
+    '',
+    closing
+  ].join('\n');
+}
+
+function buildWhatsAppUrl(phone, message) {
+  const digits = sanitizePhoneNumber(phone);
+  if (!digits) return '';
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+async function logWhatsAppNotification(ticket, phone, message, status) {
+  return safeQuery(
+    sb.from('notificacoes_whatsapp').insert({
+      chamado_id: ticket.id,
+      usuario_id: ticket.usuario_id || null,
+      enviado_por: state.profile?.id || null,
+      telefone: sanitizePhoneNumber(phone),
+      mensagem: message,
+      status_chamado: status
+    }).select().single()
+  );
 }
 
 function compareNameAsc(a, b) {
@@ -550,6 +672,7 @@ async function ensureProfile(sessionUser) {
     id: sessionUser.id,
     nome: sessionUser.user_metadata?.nome || sessionUser.email.split('@')[0],
     email: sessionUser.email,
+    telefone: sanitizePhoneNumber(sessionUser.user_metadata?.telefone || ''),
     perfil: sessionUser.user_metadata?.perfil || 'funcionario',
     loja_id: sessionUser.user_metadata?.loja_id || null,
     ativo: true
@@ -743,7 +866,7 @@ async function fetchTickets(filters = {}) {
     loja:lojas(id,nome,codigo),
     caixa:caixas(id,nome,setor),
     tipo:tipos_chamado(id,nome),
-    usuario:usuarios(id,nome,email)
+    usuario:usuarios(id,nome,email,telefone)
   `).order('created_at', { ascending: false });
 
   const data = await safeQuery(query);
@@ -915,24 +1038,7 @@ function renderDashboard() {
             </div>
           </div>
         </article>
-      ` : `
-        <article class="card ticket-form-card">
-          <div class="card-title-row">
-            <div>
-              <h3>Painel administrativo</h3>
-              <p>Administradores apenas visualizam, acompanham e alteram chamados existentes.</p>
-            </div>
-          </div>
-          <div class="entity-card entity-card-ticket">
-            <div class="entity-card-content">
-              ${renderInfoGrid([
-                ['Perfil', state.profile?.perfil || '-'],
-                ['Permissão', 'Visualizar e alterar chamados']
-              ])}
-            </div>
-          </div>
-        </article>
-      `}
+      ` : ``}
 
       <aside class="recent-column">
         <article class="card">
@@ -1193,21 +1299,38 @@ function renderTicketView() {
       </div>
       ${renderFilterAccordion('tickets', `
         <div class="filters">
-          <select id="f-store">${stores}</select>
-          <select id="f-checkout">${checkouts}</select>
-          <select id="f-type">${types}</select>
-          <select id="f-status">
-            ${statusOptions}
-          </select>
-          <select id="f-priority">
-            <option value="">Todas prioridades</option>
-            <option value="baixa" ${ticketUi.filters.priority === 'baixa' ? 'selected' : ''}>Baixa</option>
-            <option value="media" ${ticketUi.filters.priority === 'media' ? 'selected' : ''}>Média</option>
-            <option value="alta" ${ticketUi.filters.priority === 'alta' ? 'selected' : ''}>Alta</option>
-            <option value="critica" ${ticketUi.filters.priority === 'critica' ? 'selected' : ''}>Crítica</option>
-          </select>
-          <button id="btn-apply-filters" class="btn btn-primary btn-sm">Aplicar</button>
-          <button id="btn-clear-filters" class="btn btn-ghost btn-sm">Limpar</button>
+          <label class="filter-field">
+            <span>Loja</span>
+            <select id="f-store">${stores}</select>
+          </label>
+          <label class="filter-field">
+            <span>Equipamento/Setor</span>
+            <select id="f-checkout">${checkouts}</select>
+          </label>
+          <label class="filter-field">
+            <span>Tipo</span>
+            <select id="f-type">${types}</select>
+          </label>
+          <label class="filter-field">
+            <span>Status</span>
+            <select id="f-status">
+              ${statusOptions}
+            </select>
+          </label>
+          <label class="filter-field">
+            <span>Prioridade</span>
+            <select id="f-priority">
+              <option value="">Todas prioridades</option>
+              <option value="baixa" ${ticketUi.filters.priority === 'baixa' ? 'selected' : ''}>Baixa</option>
+              <option value="media" ${ticketUi.filters.priority === 'media' ? 'selected' : ''}>Média</option>
+              <option value="alta" ${ticketUi.filters.priority === 'alta' ? 'selected' : ''}>Alta</option>
+              <option value="critica" ${ticketUi.filters.priority === 'critica' ? 'selected' : ''}>Crítica</option>
+            </select>
+          </label>
+          <div class="filters-actions">
+            <button id="btn-apply-filters" class="btn btn-primary btn-sm" type="button">Aplicar filtros</button>
+            <button id="btn-clear-filters" class="btn btn-ghost btn-sm" type="button">Limpar</button>
+          </div>
         </div>
       `)}
     </article>
@@ -1857,6 +1980,7 @@ function renderUsers() {
   adminEntityView('Usuários', 'users', state.lookups.users, [
     { key: 'nome', label: 'Nome' },
     { key: 'email', label: 'Email' },
+    { key: 'telefone', label: 'Telefone' },
     { key: 'perfil', label: 'Perfil' },
     { key: 'loja_id', label: 'Loja', render: row => state.lookups.stores.find(s => s.id === row.loja_id)?.nome || '-' },
     { key: 'ativo', label: 'Status', render: row => row.ativo ? 'Ativo' : 'Inativo' }
@@ -1869,6 +1993,7 @@ function renderUsers() {
         fields: [
           { name: 'nome', label: 'Nome', required: true },
           { name: 'email', label: 'Email', type: 'email', required: true },
+          { name: 'telefone', label: 'Telefone / WhatsApp', type: 'tel', required: true, placeholder: '5599999999999' },
           { name: 'senha', label: 'Senha inicial', type: 'password', required: true, minLength: 6, placeholder: 'Mínimo de 6 caracteres' },
           {
             name: 'perfil',
@@ -1895,10 +2020,13 @@ function renderUsers() {
 
       const nome = result.values.nome;
       const email = result.values.email;
+      const telefone = sanitizePhoneNumber(result.values.telefone);
       const senha = result.values.senha;
       const perfil = result.values.perfil;
       const loja = result.values.loja;
-      if (!nome || !email || !senha || senha.length < 6) return;
+      if (!nome || !email || !telefone || !senha || senha.length < 6) {
+        return showToast('Preencha nome, email, telefone e uma senha válida.', 'error');
+      }
 
       const confirmed = await confirmAction({
         title: 'Criar usuário',
@@ -1917,6 +2045,7 @@ function renderUsers() {
         options: {
           data: {
             nome,
+            telefone,
             perfil: perfil === 'admin' ? 'admin' : 'funcionario',
             loja_id: loja ? Number(loja) : null
           }
@@ -1934,6 +2063,7 @@ function renderUsers() {
         confirmText: 'Salvar alterações',
         fields: [
           { name: 'nome', label: 'Nome', required: true, value: row.nome },
+          { name: 'telefone', label: 'Telefone / WhatsApp', type: 'tel', required: true, value: row.telefone || '', placeholder: '5599999999999' },
           {
             name: 'perfil',
             label: 'Perfil',
@@ -1968,9 +2098,11 @@ function renderUsers() {
       if (!result.confirmed || !result.values.nome) return;
 
       const nome = result.values.nome;
+      const telefone = sanitizePhoneNumber(result.values.telefone);
       const perfil = result.values.perfil || row.perfil;
       const loja = result.values.loja;
       const ativo = result.values.ativo === 'true';
+      if (!telefone) return showToast('Informe um telefone válido.', 'error');
       const confirmed = await confirmAction({
         title: 'Salvar edição do usuário',
         message: `Confirmar atualização do usuário ${nome}?`,
@@ -1980,6 +2112,7 @@ function renderUsers() {
       await safeQuery(
         sb.from('usuarios').update({
           nome,
+          telefone,
           perfil: perfil === 'admin' ? 'admin' : 'funcionario',
           loja_id: loja ? Number(loja) : null,
           ativo
@@ -2068,6 +2201,11 @@ function renderSettings() {
               <input value="${user?.email || ''}" disabled />
             </label>
           </div>
+          <div class="grid-2">
+            <label>Telefone / WhatsApp
+              <input id="settings-phone" type="tel" value="${user?.telefone || ''}" required placeholder="5599999999999" />
+            </label>
+          </div>
           <footer class="admin-form-actions">
             <button id="btn-save-settings" type="submit" class="btn btn-primary btn-sm">Salvar</button>
           </footer>
@@ -2079,15 +2217,18 @@ function renderSettings() {
   document.getElementById('settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const nome = document.getElementById('settings-name').value.trim();
+    const telefone = sanitizePhoneNumber(document.getElementById('settings-phone').value);
     if (!nome) return showToast('Informe o nome', 'error');
+    if (!telefone) return showToast('Informe o telefone / WhatsApp.', 'error');
     const confirmed = await confirmAction({
       title: 'Salvar perfil',
       message: `Confirmar atualização do seu nome para ${nome}?`,
       confirmText: 'Salvar perfil'
     });
     if (!confirmed) return;
-    await safeQuery(sb.from('usuarios').update({ nome }).eq('id', state.profile.id));
+    await safeQuery(sb.from('usuarios').update({ nome, telefone }).eq('id', state.profile.id));
     state.profile.nome = nome;
+    state.profile.telefone = telefone;
     el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
     showToast('Perfil atualizado');
   });
@@ -2133,7 +2274,7 @@ async function openTicketDetails(ticketId) {
         loja:lojas(id,nome,codigo),
         caixa:caixas(id,nome,setor),
         tipo:tipos_chamado(id,nome),
-        usuario:usuarios(id,nome,email)
+        usuario:usuarios(id,nome,email,telefone)
       `).eq('id', ticketId).maybeSingle()
     );
   }
@@ -2142,6 +2283,8 @@ async function openTicketDetails(ticketId) {
     showToast('Nao foi possivel carregar os detalhes do chamado', 'error');
     return;
   }
+
+  const ticketUserPhone = getTicketUserPhone(ticket);
 
   const history = await safeQuery(
     sb.from('historico_chamados')
@@ -2203,6 +2346,7 @@ async function openTicketDetails(ticketId) {
           <div class="info-item"><span>Equipamentos/Setor</span><strong>${ticket.caixa?.nome || '-'}</strong></div>
           <div class="info-item"><span>Tipo</span><strong>${ticket.tipo?.nome || '-'}</strong></div>
           <div class="info-item"><span>Solicitante</span><strong>${ticket.usuario?.nome || '-'}</strong></div>
+          <div class="info-item"><span>Telefone</span><strong>${formatPhoneDisplay(ticketUserPhone)}</strong></div>
           <div class="info-item"><span>Fila atual</span><strong>${renderQueueInfo(ticket)}</strong></div>
           <div class="info-item"><span>Abertura</span><strong>${fmtDate(ticket.created_at)}</strong></div>
           <div class="info-item"><span>Anexo</span><strong>${ticket.anexo_url ? `<a href="${ticket.anexo_url}" target="_blank">Ver anexo</a>` : '-'}</strong></div>
@@ -2264,6 +2408,35 @@ async function openTicketDetails(ticketId) {
         showToast('Altere o status ou a prioridade antes de salvar.', 'error');
         return;
       }
+      let whatsappDecision = null;
+      let whatsappPhone = '';
+      let whatsappMessage = '';
+      if ((nextStatus === 'resolvido' || nextStatus === 'aguardando_retorno') && nextStatus !== ticket.status) {
+        const registeredPhone = ticketUserPhone;
+        if (!registeredPhone) {
+          return showToast('O usuário deste chamado não possui telefone cadastrado.', 'error');
+        }
+
+        const confirmTitle = nextStatus === 'aguardando_retorno'
+          ? 'Enviar WhatsApp de retorno'
+          : 'Enviar WhatsApp';
+        const confirmMessage = nextStatus === 'aguardando_retorno'
+          ? `Usar o telefone cadastrado ${registeredPhone} para abrir o WhatsApp após salvar o chamado como aguardando retorno?`
+          : `Usar o telefone cadastrado ${registeredPhone} para abrir o WhatsApp após salvar o chamado como resolvido?`;
+
+        const sendWhatsApp = await showConfirmDialog({
+          title: confirmTitle,
+          message: confirmMessage,
+          confirmText: 'Sim, abrir WhatsApp',
+          confirmClass: 'btn btn-primary'
+        });
+
+        whatsappDecision = { values: { enviar_whatsapp: sendWhatsApp } };
+        if (sendWhatsApp) {
+          whatsappPhone = registeredPhone;
+          whatsappMessage = buildStatusWhatsAppMessage(ticket, nextStatus);
+        }
+      }
       const confirmed = await confirmAction({
         title: 'Atualizar chamado',
         message: `Confirmar atualização do chamado ${ticket.numero_chamado || ticket.id}?`,
@@ -2274,7 +2447,17 @@ async function openTicketDetails(ticketId) {
         sb.from('chamados').update({ status: nextStatus, prioridade: nextPriority }).eq('id', ticket.id).select().single()
       );
       if (!updated) return;
-      showToast('Chamado atualizado');
+      if (whatsappDecision?.values?.enviar_whatsapp) {
+        const notificationLogged = await logWhatsAppNotification(ticket, whatsappPhone, whatsappMessage, nextStatus);
+        if (notificationLogged) {
+          window.open(buildWhatsAppUrl(whatsappPhone, whatsappMessage), '_blank', 'noopener');
+          showToast('Chamado atualizado e WhatsApp preparado.');
+        } else {
+          showToast('Chamado atualizado, mas o registro do WhatsApp falhou.', 'error');
+        }
+      } else {
+        showToast('Chamado atualizado');
+      }
       if (el.detailsModal.open) {
         el.detailsModal.close();
       }
@@ -2505,6 +2688,7 @@ function bootAuth() {
     e.preventDefault();
     const nome = document.getElementById('register-name').value.trim();
     const email = document.getElementById('register-email').value.trim();
+    const telefone = sanitizePhoneNumber(document.getElementById('register-phone').value);
     const password = document.getElementById('register-password').value;
     const perfil = 'funcionario';
     const loja_id = document.getElementById('register-store').value;
@@ -2513,12 +2697,17 @@ function bootAuth() {
       return showToast('Selecione uma loja para concluir o cadastro.', 'error');
     }
 
+    if (!telefone) {
+      return showToast('Informe um telefone / WhatsApp válido para concluir o cadastro.', 'error');
+    }
+
     const { error } = await sb.auth.signUp({
       email,
       password,
       options: {
         data: {
           nome,
+          telefone,
           perfil,
           loja_id: Number(loja_id)
         }
@@ -2600,7 +2789,7 @@ function bindTopActions() {
         loja:lojas(id,nome,codigo),
         caixa:caixas(id,nome,setor),
         tipo:tipos_chamado(id,nome),
-        usuario:usuarios(id,nome,email)
+        usuario:usuarios(id,nome,email,telefone)
       `).ilike('numero_chamado', `%${number}%`).limit(1)
     );
 
