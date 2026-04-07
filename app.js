@@ -1,6 +1,7 @@
 ﻿const state = {
   session: null,
   profile: null,
+  ticketWhatsAppTarget: null,
   currentView: 'dashboard',
   menu: [],
   lookups: {
@@ -229,6 +230,31 @@ function getTopOpenDialog() {
 
 function removeToastOverlays() {
   document.querySelectorAll('.toast-modal-overlay').forEach(node => node.remove());
+}
+
+function closeBlockingDialogs() {
+  removeToastOverlays();
+
+  if (el.toastDialog?.open) {
+    try {
+      el.toastDialog.close();
+    } catch (error) {
+      el.toastDialog.removeAttribute('open');
+    }
+  }
+
+  [el.customDialog, el.ticketModal, el.detailsModal].forEach(dialog => {
+    if (!dialog?.open) return;
+    try {
+      dialog.close();
+    } catch (error) {
+      dialog.removeAttribute('open');
+    }
+  });
+
+  if (el.customDialog) {
+    resetCustomDialogUi();
+  }
 }
 
 function showAuthScreen() {
@@ -523,9 +549,8 @@ function openCustomDialog({
 }
 
 async function refreshCurrentView() {
+  closeBlockingDialogs();
   await reloadAll();
-  removeToastOverlays();
-  if (el.customDialog) resetCustomDialogUi();
   await renderView();
 }
 
@@ -648,6 +673,25 @@ function getTicketUserPhone(ticket) {
   return '';
 }
 
+function getFixedTicketWhatsAppTarget() {
+  const phone = sanitizePhoneNumber(state.ticketWhatsAppTarget?.whatsapp_chamados_destino);
+  if (!phone) return null;
+  return {
+    id: state.ticketWhatsAppTarget.id || null,
+    nome: state.ticketWhatsAppTarget.nome || 'Admin',
+    whatsapp_chamados_destino: phone
+  };
+}
+
+function syncTicketWhatsAppOption() {
+  const button = el.ticketForm?.querySelector('button[type="submit"]');
+  if (!button) return;
+
+  const target = getFixedTicketWhatsAppTarget();
+  button.disabled = !target;
+  button.title = target ? '' : 'Cadastre o WhatsApp fixo do admin nas configurações.';
+}
+
 function buildStatusWhatsAppMessage(ticket, status) {
   const ticketNumber = ticket.numero_chamado || ticket.id;
   const requesterName = ticket.usuario?.nome || 'Solicitante';
@@ -706,23 +750,126 @@ function buildStartServiceWhatsAppMessage(ticket, customMessage) {
   ].join('\n');
 }
 
+function buildNewTicketWhatsAppMessage(ticket) {
+  const ticketNumber = ticket.numero_chamado || ticket.id;
+  const requesterName = ticket.usuario?.nome || state.profile?.nome || 'Solicitante';
+  const requesterPhone = getTicketUserPhone(ticket) || sanitizePhoneNumber(state.profile?.telefone);
+  const storeName = ticket.loja?.nome || 'Loja não informada';
+  const checkoutName = ticket.caixa?.nome || 'Equipamento/Setor não informado';
+  const checkoutSector = ticket.caixa?.setor ? ` (${ticket.caixa.setor})` : '';
+  const typeName = ticket.tipo?.nome || 'Tipo não informado';
+  const title = ticket.titulo || 'Sem título';
+  const description = ticket.descricao || 'Sem detalhes adicionais.';
+
+  return [
+    'Novo chamado aberto no sistema.',
+    '',
+    `Número: ${ticketNumber}`,
+    `Solicitante: ${requesterName}`,
+    `Telefone: ${requesterPhone || 'Não informado'}`,
+    `Loja: ${storeName}`,
+    `Equipamento/Setor: ${checkoutName}${checkoutSector}`,
+    `Tipo: ${typeName}`,
+    `Título: ${title}`,
+    `Descrição: ${description}`
+  ].join('\n');
+}
+
 function buildWhatsAppUrl(phone, message) {
   const digits = sanitizePhoneNumber(phone);
   if (!digits) return '';
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
 
-async function logWhatsAppNotification(ticket, phone, message, status) {
-  return safeQuery(
-    sb.from('notificacoes_whatsapp').insert({
-      chamado_id: ticket.id,
-      usuario_id: ticket.usuario_id || null,
-      enviado_por: state.profile?.id || null,
-      telefone: sanitizePhoneNumber(phone),
-      mensagem: message,
-      status_chamado: status
-    }).select().single()
+async function logWhatsAppNotification(ticket, phone, message, status, recipientUserId = null) {
+  const { error } = await sb.from('notificacoes_whatsapp').insert({
+    chamado_id: ticket.id,
+    usuario_id: recipientUserId || ticket.usuario_id || null,
+    enviado_por: state.profile?.id || null,
+    telefone: sanitizePhoneNumber(phone),
+    mensagem: message,
+    status_chamado: status
+  });
+
+  if (error) {
+    console.error(error);
+    showToast(error.message, 'error');
+    return null;
+  }
+
+  return { ok: true };
+}
+
+async function sendNewTicketWhatsApp({ inserted, payload }) {
+  if (el.ticketModal?.open) {
+    try {
+      el.ticketModal.close();
+    } catch (error) {
+      el.ticketModal.removeAttribute('open');
+    }
+  }
+
+  const targetAdmin = getFixedTicketWhatsAppTarget();
+  if (!targetAdmin) {
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado, mas nenhum WhatsApp fixo foi configurado por um admin.`, 'error');
+    return false;
+  }
+
+  const ticketForWhatsApp = {
+    ...inserted,
+    loja: state.lookups.stores.find(store => String(store.id) === String(payload.loja_id)) || null,
+    caixa: state.lookups.checkouts.find(checkout => String(checkout.id) === String(payload.caixa_id)) || null,
+    tipo: state.lookups.types.find(type => String(type.id) === String(payload.tipo_chamado_id)) || null,
+    usuario: state.lookups.users.find(user => String(user.id) === String(payload.usuario_id)) || state.profile || null
+  };
+  const whatsappMessage = buildNewTicketWhatsAppMessage(ticketForWhatsApp);
+  const notificationLogged = await logWhatsAppNotification(
+    ticketForWhatsApp,
+    targetAdmin.whatsapp_chamados_destino,
+    whatsappMessage,
+    'aberto',
+    targetAdmin.id
   );
+
+  if (notificationLogged) {
+    window.open(buildWhatsAppUrl(targetAdmin.whatsapp_chamados_destino, whatsappMessage), '_blank', 'noopener');
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado e WhatsApp preparado.`);
+    return true;
+  } else {
+    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado, mas o registro do WhatsApp falhou.`, 'error');
+    return false;
+  }
+}
+
+async function submitNewTicket(payload, { afterSuccess = null } = {}) {
+  if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
+    showToast('Preencha os campos obrigatórios', 'error');
+    return false;
+  }
+
+  if (!getFixedTicketWhatsAppTarget()) {
+    showToast('Cadastre o WhatsApp fixo do admin nas configurações antes de abrir o chamado.', 'error');
+    return false;
+  }
+
+  const confirmed = await confirmAction({
+    title: 'Abrir chamado',
+    message: `Confirmar abertura do chamado "${payload.titulo}"?`,
+    confirmText: 'Abrir chamado'
+  });
+  if (!confirmed) return false;
+
+  const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
+  if (!inserted) return false;
+
+  const whatsappSent = await sendNewTicketWhatsApp({ inserted, payload });
+  if (!whatsappSent) return false;
+
+  if (typeof afterSuccess === 'function') {
+    await afterSuccess(inserted);
+  }
+
+  return true;
 }
 
 function compareNameAsc(a, b) {
@@ -816,17 +963,19 @@ async function safeQuery(promise) {
 }
 
 async function loadLookups() {
-  const [stores, checkouts, types, users] = await Promise.all([
+  const [stores, checkouts, types, users, ticketWhatsAppTarget] = await Promise.all([
     safeQuery(sb.from('lojas').select('*').order('nome')),
     safeQuery(sb.from('caixas').select('*').order('nome')),
     safeQuery(sb.from('tipos_chamado').select('*').order('nome')),
-    safeQuery(sb.from('usuarios').select('*').order('nome'))
+    safeQuery(sb.from('usuarios').select('*').order('nome')),
+    safeQuery(sb.rpc('get_ticket_whatsapp_target').maybeSingle())
   ]);
 
   state.lookups.stores = stores || [];
   state.lookups.checkouts = checkouts || [];
   state.lookups.types = types || [];
   state.lookups.users = users || [];
+  state.ticketWhatsAppTarget = ticketWhatsAppTarget || null;
 
   hydrateStoreSelects();
 }
@@ -1413,7 +1562,7 @@ function renderDashboard() {
               </label>
             </div>
             <footer class="admin-form-actions">
-              <button type="submit" class="btn btn-primary btn-sm">Salvar chamado</button>
+              <button type="submit" class="btn btn-primary btn-sm">Abrir Chamado</button>
               <button type="button" id="btn-open-ticket-modal" class="btn btn-ghost btn-sm">Modo completo</button>
             </footer>
           </form>
@@ -1558,20 +1707,19 @@ function renderDashboard() {
         responsavel_local: null,
         status: 'aberto'
       };
-      if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
-        return showToast('Preencha os campos obrigatórios', 'error');
-      }
-      const confirmed = await confirmAction({
-        title: 'Abrir chamado',
-        message: `Confirmar abertura do chamado "${payload.titulo}"?`,
-        confirmText: 'Abrir chamado'
+      await submitNewTicket(payload, {
+        sendWhatsApp: true,
+        afterSuccess: async () => {
+          document.getElementById('quick-ticket-form').reset();
+          if (state.profile?.loja_id) {
+            storeSelect.value = String(state.profile.loja_id);
+            storeSelect.setAttribute('disabled', 'disabled');
+          }
+          syncCheckouts();
+          await reloadAll();
+          renderDashboard();
+        }
       });
-      if (!confirmed) return;
-      const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
-      if (!inserted) return;
-      showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
-      await reloadAll();
-      renderDashboard();
     });
 
     document.getElementById('btn-open-ticket-modal').addEventListener('click', () => {
@@ -2714,6 +2862,11 @@ function renderSettings() {
             <label>Telefone / WhatsApp
               <input id="settings-phone" type="tel" value="${user?.telefone || ''}" required placeholder="5599999999999" />
             </label>
+            ${isAdmin() ? `
+            <label>WhatsApp fixo para receber chamados
+              <input id="settings-ticket-whatsapp" type="tel" value="${user?.whatsapp_chamados_destino || ''}" placeholder="5599999999999" />
+            </label>
+            ` : ''}
           </div>
           <footer class="admin-form-actions">
             <button id="btn-save-settings" type="submit" class="btn btn-primary btn-sm">Salvar</button>
@@ -2727,6 +2880,9 @@ function renderSettings() {
     e.preventDefault();
     const nome = document.getElementById('settings-name').value.trim();
     const telefone = sanitizePhoneNumber(document.getElementById('settings-phone').value);
+    const whatsappChamadosDestino = isAdmin()
+      ? sanitizePhoneNumber(document.getElementById('settings-ticket-whatsapp')?.value)
+      : null;
     if (!nome) return showToast('Informe o nome', 'error');
     if (!telefone) return showToast('Informe o telefone / WhatsApp.', 'error');
     const confirmed = await confirmAction({
@@ -2735,11 +2891,19 @@ function renderSettings() {
       confirmText: 'Salvar perfil'
     });
     if (!confirmed) return;
-    await safeQuery(sb.from('usuarios').update({ nome, telefone }).eq('id', state.profile.id));
+    const updatePayload = { nome, telefone };
+    if (isAdmin()) {
+      updatePayload.whatsapp_chamados_destino = whatsappChamadosDestino || null;
+    }
+    await safeQuery(sb.from('usuarios').update(updatePayload).eq('id', state.profile.id));
     state.profile.nome = nome;
     state.profile.telefone = telefone;
+    if (isAdmin()) {
+      state.profile.whatsapp_chamados_destino = whatsappChamadosDestino || null;
+    }
     el.userInfo.textContent = `${state.profile.nome} (${state.profile.perfil})`;
     showToast('Perfil atualizado');
+    await refreshCurrentView();
   });
 }
 
@@ -2929,6 +3093,48 @@ function setupTicketModal() {
     document.getElementById('ticket-checkout').innerHTML = options || '<option value="">Sem equipamentos/setor ativos</option>';
   });
 
+  const ticketWhatsappButton = document.getElementById('btn-save-ticket-whatsapp');
+  if (ticketWhatsappButton) {
+    ticketWhatsappButton.addEventListener('click', async () => {
+      if (!getFixedTicketWhatsAppTarget()) {
+        return showToast('Nenhum WhatsApp fixo foi configurado por um admin.', 'error');
+      }
+      if (!el.ticketForm.checkValidity()) {
+        el.ticketForm.reportValidity();
+        return;
+      }
+
+      const payload = {
+        loja_id: Number(document.getElementById('ticket-store').value),
+        caixa_id: Number(document.getElementById('ticket-checkout').value),
+        tipo_chamado_id: Number(document.getElementById('ticket-type').value),
+        usuario_id: state.profile.id,
+        titulo: document.getElementById('ticket-title').value.trim(),
+        descricao: document.getElementById('ticket-description').value.trim(),
+        prioridade: 'baixa',
+        anexo_url: document.getElementById('ticket-attachment').value.trim() || null,
+        telefone_retorno: null,
+        responsavel_local: null,
+        status: 'aberto'
+      };
+
+      const saved = await submitNewTicket(payload, {
+        sendWhatsApp: true,
+        afterSuccess: async () => {
+          el.ticketForm.reset();
+          syncTicketWhatsAppOption();
+          if (el.ticketModal.open) {
+            el.ticketModal.close();
+          }
+          await reloadAll();
+          renderView();
+        }
+      });
+
+      if (!saved) return;
+    });
+  }
+
   el.btnOpenTicket.addEventListener('click', async () => {
     if (isAdmin()) {
       showToast('Administradores apenas visualizam e alteram chamados.', 'error');
@@ -2951,13 +3157,14 @@ function setupTicketModal() {
       storeSelect.dispatchEvent(new Event('change'));
     }
 
+    syncTicketWhatsAppOption();
     el.ticketModal.showModal();
   });
 
   document.getElementById('btn-close-ticket').addEventListener('click', () => el.ticketModal.close());
 
-  el.ticketForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
+    el.ticketForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
 
     const payload = {
       loja_id: Number(document.getElementById('ticket-store').value),
@@ -2972,26 +3179,18 @@ function setupTicketModal() {
       responsavel_local: null,
       status: 'aberto'
     };
-
-    if (!payload.loja_id || !payload.caixa_id || !payload.tipo_chamado_id || !payload.titulo || !payload.descricao) {
-      return showToast('Preencha os campos obrigatórios', 'error');
-    }
-
-    const confirmed = await confirmAction({
-      title: 'Abrir chamado',
-      message: `Confirmar abertura do chamado "${payload.titulo}"?`,
-      confirmText: 'Abrir chamado'
+    await submitNewTicket(payload, {
+      sendWhatsApp: true,
+      afterSuccess: async () => {
+        el.ticketForm.reset();
+        syncTicketWhatsAppOption();
+        if (el.ticketModal.open) {
+          el.ticketModal.close();
+        }
+        await reloadAll();
+        renderView();
+      }
     });
-    if (!confirmed) return;
-
-    const inserted = await safeQuery(sb.from('chamados').insert(payload).select().single());
-    if (!inserted) return;
-
-    showToast(`Chamado ${inserted.numero_chamado || inserted.id} criado com sucesso`);
-    el.ticketForm.reset();
-    el.ticketModal.close();
-    await reloadAll();
-    renderView();
   });
 }
 

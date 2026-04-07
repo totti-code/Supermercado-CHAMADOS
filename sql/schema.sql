@@ -40,6 +40,7 @@ create table if not exists public.usuarios (
   nome text not null,
   email text not null unique,
   telefone text not null,
+  whatsapp_chamados_destino text,
   perfil public.user_role not null default 'funcionario',
   loja_id bigint references public.lojas(id),
   ativo boolean not null default true,
@@ -317,6 +318,30 @@ begin
   values (p_chamado_id, auth.uid(), 'observacao', p_texto);
 end;
 $$;
+
+create or replace function public.get_ticket_whatsapp_target()
+returns table (
+  id uuid,
+  nome text,
+  whatsapp_chamados_destino text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    u.id,
+    u.nome,
+    regexp_replace(coalesce(u.whatsapp_chamados_destino, ''), '\D', '', 'g') as whatsapp_chamados_destino
+  from public.usuarios u
+  where u.ativo = true
+    and u.perfil = 'admin'
+    and coalesce(u.whatsapp_chamados_destino, '') <> ''
+  order by u.created_at asc
+  limit 1;
+$$;
+
+grant execute on function public.get_ticket_whatsapp_target() to authenticated;
 
 -- RLS
 alter table public.lojas enable row level security;
