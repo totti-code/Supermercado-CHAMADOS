@@ -769,7 +769,7 @@ function buildStatusWhatsAppMessage(ticket, status) {
     : 'Seu chamado foi marcado como resolvido.';
   const closing = status === 'aguardando_retorno'
     ? 'Por favor, responda esta mensagem com o retorno solicitado para continuarmos o atendimento.'
-    : 'Se precisar de mais ajuda, responda esta mensagem.';
+    : '';
 
   return [
     `Olá, ${requesterName}!`,
@@ -782,8 +782,7 @@ function buildStatusWhatsAppMessage(ticket, status) {
     `Tipo: ${typeName}`,
     `Título: ${title}`,
     `Detalhes informados: ${description}`,
-    '',
-    closing
+    ...(closing ? ['', closing] : [])
   ].join('\n');
 }
 
