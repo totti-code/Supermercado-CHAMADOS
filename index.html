@@ -10,7 +10,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260407-1" />
+  <script>
+    window.APP_ASSET_VERSION = Date.now().toString();
+
+    function loadStylesheet(path) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `${path}?v=${window.APP_ASSET_VERSION}`;
+      document.head.appendChild(link);
+    }
+
+    loadStylesheet('styles.css');
+  </script>
 </head>
 <body>
   <div id="toast-container"></div>
@@ -134,8 +145,8 @@
         <input id="ticket-attachment" placeholder="https://..." />
       </label>
       <footer class="modal-footer">
-        <button type="button" id="btn-close-ticket" class="btn btn-ghost">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar chamado</button>
+        <button type="button" id="btn-close-ticket" class="btn btn-ghost btn-sm">Cancelar</button>
+        <button type="submit" class="btn btn-primary btn-sm">Salvar chamado</button>
       </footer>
     </form>
   </dialog>
@@ -152,16 +163,31 @@
       </header>
       <section id="custom-dialog-fields" class="form-grid custom-dialog-fields"></section>
       <footer class="modal-footer">
-        <button type="button" id="custom-dialog-cancel" class="btn btn-ghost">Cancelar</button>
-        <button type="submit" id="custom-dialog-confirm" class="btn btn-primary">Confirmar</button>
+        <button type="button" id="custom-dialog-cancel" class="btn btn-ghost btn-sm">Cancelar</button>
+        <button type="submit" id="custom-dialog-confirm" class="btn btn-primary btn-sm">Confirmar</button>
       </footer>
     </form>
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=20260407-1"></script>
-  <script src="supabase.js?v=20260407-1"></script>
-  <script src="app.js?v=20260407-1"></script>
+  <script>
+    (function loadLocalScriptsSequentially() {
+      const localScripts = ['config.js', 'supabase.js', 'app.js'];
+
+      function loadScript(index) {
+        if (index >= localScripts.length) return;
+
+        const script = document.createElement('script');
+        script.src = `${localScripts[index]}?v=${window.APP_ASSET_VERSION}`;
+        script.onload = function () {
+          loadScript(index + 1);
+        };
+        document.body.appendChild(script);
+      }
+
+      loadScript(0);
+    })();
+  </script>
 </body>
 </html>

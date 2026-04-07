@@ -4627,3 +4627,90 @@ svg {
     min-height: 48px;
   }
 }
+
+/* Modal actions: keep ticket/detail actions compact on desktop and only stack on small screens */
+#ticket-form .modal-footer,
+#custom-dialog-form .modal-footer,
+#details-content .modal-footer,
+#details-content .admin-form-actions {
+  justify-content: flex-start;
+}
+
+#ticket-form .modal-footer .btn,
+#custom-dialog-form .modal-footer .btn,
+#details-content .modal-footer .btn,
+#details-content .admin-form-actions .btn,
+#details-content .toolbar .btn,
+#details-content .card > .btn {
+  width: auto;
+  min-width: 118px;
+  max-width: fit-content;
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 0.84rem;
+  flex: 0 0 auto;
+}
+
+#details-content .card > .btn {
+  justify-self: start;
+}
+
+#details-content .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+#details-content .toolbar select,
+#details-content .toolbar input {
+  flex: 1 1 180px;
+}
+
+@media (max-width: 720px) {
+  #ticket-form .modal-footer,
+  #custom-dialog-form .modal-footer,
+  #details-content .modal-footer,
+  #details-content .admin-form-actions {
+    justify-content: stretch;
+  }
+
+  #ticket-form .modal-footer .btn,
+  #custom-dialog-form .modal-footer .btn,
+  #details-content .modal-footer .btn,
+  #details-content .admin-form-actions .btn,
+  #details-content .toolbar .btn,
+  #details-content .card > .btn {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+  }
+}
+
+.ticket-delete-action {
+  border-color: rgba(216, 94, 103, 0.28);
+  color: #d85e67;
+  background: rgba(216, 94, 103, 0.06);
+  box-shadow: none;
+}
+
+.ticket-delete-action:hover {
+  border-color: rgba(216, 94, 103, 0.4);
+  background: rgba(216, 94, 103, 0.12);
+  color: #c84c56;
+  box-shadow: none;
+}
+
+.ticket-start-action {
+  border-color: #2f9b63;
+  color: #ffffff;
+  background: linear-gradient(135deg, #43c97f 0%, #2f9b63 100%);
+  box-shadow: 0 10px 22px rgba(47, 155, 99, 0.24);
+}
+
+.ticket-start-action:hover {
+  border-color: #278556;
+  background: linear-gradient(135deg, #39b572 0%, #278556 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(39, 133, 86, 0.28);
+}

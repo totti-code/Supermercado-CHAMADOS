@@ -66,6 +66,39 @@ const MENU_ADMIN_GROUPS = [
   }
 ];
 
+const UI_STORAGE_KEY = 'supermercado_chamados_ui_v1';
+const TICKET_SELECT_QUERY = `
+  *,
+  loja:lojas(id,nome,codigo),
+  caixa:caixas(id,nome,setor),
+  tipo:tipos_chamado(id,nome),
+  usuario:usuarios(id,nome,email,telefone)
+`;
+const TICKET_STATUS_LABELS = {
+  aberto: 'Aberto',
+  em_andamento: 'Em andamento',
+  aguardando_retorno: 'Aguardando retorno',
+  resolvido: 'Resolvido',
+  fechado: 'Fechado',
+  cancelado: 'Cancelado'
+};
+const TICKET_PRIORITY_LABELS = {
+  baixa: 'Baixa',
+  media: 'Média',
+  alta: 'Alta',
+  critica: 'Crítica'
+};
+const COMPLETED_TICKET_STATUSES = ['resolvido', 'fechado', 'cancelado'];
+const ACTIVE_TICKET_FILTER_OPTIONS = [
+  { value: 'aberto', label: 'Aberto' },
+  { value: 'em_andamento', label: 'Em andamento' },
+  { value: 'aguardando_retorno', label: 'Aguardando retorno' }
+];
+const HISTORY_TICKET_FILTER_OPTIONS = [
+  { value: 'resolvido', label: 'Resolvido' },
+  { value: 'cancelado', label: 'Cancelado' }
+];
+
 const el = {
   authView: document.getElementById('auth-view'),
   appView: document.getElementById('app-view'),
@@ -106,6 +139,88 @@ const customDialogState = {
 };
 
 let toastTimer = null;
+
+function normalizeDialogState(dialog) {
+  if (!dialog) return;
+  if (dialog.open) {
+    try {
+      dialog.close();
+    } catch (error) {
+      dialog.removeAttribute('open');
+    }
+  }
+  dialog.returnValue = '';
+}
+
+function readUiPrefs() {
+  try {
+    return JSON.parse(window.localStorage.getItem(UI_STORAGE_KEY) || '{}');
+  } catch (error) {
+    console.warn('Nao foi possivel ler preferencias da interface.', error);
+    return {};
+  }
+}
+
+function writeUiPrefs(patch) {
+  try {
+    const current = readUiPrefs();
+    window.localStorage.setItem(UI_STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
+  } catch (error) {
+    console.warn('Nao foi possivel salvar preferencias da interface.', error);
+  }
+}
+
+function restoreUiPrefs() {
+  const prefs = readUiPrefs();
+  if (prefs.theme === 'light') {
+    document.body.classList.add('theme-light');
+  }
+
+  if (typeof prefs.lastView === 'string' && prefs.lastView) {
+    state.currentView = prefs.lastView;
+  }
+
+  if (prefs.adminTickets && typeof prefs.adminTickets === 'object') {
+    state.adminUi.tickets = {
+      tab: prefs.adminTickets.tab === 'history' ? 'history' : 'active',
+      filters: {
+        store: prefs.adminTickets.filters?.store || '',
+        checkout: prefs.adminTickets.filters?.checkout || '',
+        type: prefs.adminTickets.filters?.type || '',
+        status: prefs.adminTickets.filters?.status || '',
+        priority: prefs.adminTickets.filters?.priority || ''
+      }
+    };
+  }
+}
+
+function persistTicketUiState() {
+  writeUiPrefs({
+    adminTickets: {
+      tab: state.adminUi.tickets.tab,
+      filters: { ...state.adminUi.tickets.filters }
+    }
+  });
+}
+
+function persistCurrentView() {
+  writeUiPrefs({ lastView: state.currentView });
+}
+
+async function copyText(text, successMessage = 'Copiado.') {
+  const value = String(text || '').trim();
+  if (!value) {
+    showToast('Nada para copiar.', 'error');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast(successMessage);
+  } catch (error) {
+    showToast('Não foi possível copiar.', 'error');
+  }
+}
 
 function getTopOpenDialog() {
   const openDialogs = [...document.querySelectorAll('dialog[open]')];
@@ -159,7 +274,6 @@ function clearClientSessionState() {
   state.adminUi.tickets.tab = 'active';
 
   try {
-    window.localStorage.clear();
     window.sessionStorage.clear();
   } catch (error) {
     console.warn('Nao foi possivel limpar o storage local.', error);
@@ -320,8 +434,32 @@ function buildDialogField(field) {
 
 function closeCustomDialog(result = { confirmed: false, values: {} }) {
   customDialogState.result = result;
-  if (el.customDialog?.open) {
-    el.customDialog.close();
+  if (el.customDialog) {
+    normalizeDialogState(el.customDialog);
+  }
+}
+
+function resetCustomDialogUi() {
+  customDialogState.fields = [];
+  customDialogState.result = { confirmed: false, values: {} };
+  if (el.customDialogForm) el.customDialogForm.reset();
+  if (el.customDialogTitle) el.customDialogTitle.textContent = 'Confirmar ação';
+  if (el.customDialogMessage) {
+    el.customDialogMessage.textContent = '';
+    el.customDialogMessage.classList.add('hidden');
+  }
+  if (el.customDialogFields) el.customDialogFields.innerHTML = '';
+  if (el.customDialogCancel) {
+    el.customDialogCancel.textContent = 'Cancelar';
+    el.customDialogCancel.className = 'btn btn-ghost btn-sm';
+    el.customDialogCancel.classList.remove('hidden');
+  }
+  if (el.customDialogConfirm) {
+    el.customDialogConfirm.textContent = 'Confirmar';
+    el.customDialogConfirm.className = 'btn btn-primary btn-sm';
+  }
+  if (el.customDialog) {
+    el.customDialog.returnValue = '';
   }
 }
 
@@ -360,12 +498,49 @@ function openCustomDialog({
   el.customDialogConfirm.className = confirmClass;
 
   return new Promise(resolve => {
-    customDialogState.resolver = resolve;
+    const showDialog = () => {
+      customDialogState.resolver = resolve;
+      requestAnimationFrame(() => {
+        if (!el.customDialog.open) {
+          el.customDialog.returnValue = '';
+          el.customDialog.showModal();
+        }
+      });
+    };
+
     if (el.customDialog.open) {
-      el.customDialog.close();
+      const reopenAfterClose = () => {
+        el.customDialog.removeEventListener('close', reopenAfterClose);
+        showDialog();
+      };
+      el.customDialog.addEventListener('close', reopenAfterClose);
+      normalizeDialogState(el.customDialog);
+      return;
     }
-    requestAnimationFrame(() => el.customDialog.showModal());
+
+    showDialog();
   });
+}
+
+async function refreshCurrentView() {
+  await reloadAll();
+  removeToastOverlays();
+  if (el.customDialog) resetCustomDialogUi();
+  await renderView();
+}
+
+function getTicketSource() {
+  return state.allTickets.length ? state.allTickets : state.tickets;
+}
+
+function findTicketById(ticketId) {
+  return getTicketSource().find(ticket => String(ticket.id) === String(ticketId)) || null;
+}
+
+async function fetchTicketById(ticketId) {
+  return safeQuery(
+    sb.from('chamados').select(TICKET_SELECT_QUERY).eq('id', ticketId).maybeSingle()
+  );
 }
 
 async function showConfirmDialog({ title, message, confirmText = 'Confirmar', confirmClass = 'btn btn-primary' }) {
@@ -415,9 +590,11 @@ function initCustomDialog() {
 
   el.customDialog.addEventListener('close', () => {
     const resolver = customDialogState.resolver;
-    if (!resolver) return;
-    customDialogState.resolver = null;
-    resolver(customDialogState.result);
+    if (resolver) {
+      customDialogState.resolver = null;
+      resolver(customDialogState.result);
+    }
+    resetCustomDialogUi();
   });
 }
 
@@ -427,20 +604,11 @@ function fmtDate(value) {
 }
 
 function badgeStatus(s) {
-  const map = {
-    aberto: 'Aberto',
-    em_andamento: 'Em andamento',
-    aguardando_retorno: 'Aguardando retorno',
-    resolvido: 'Resolvido',
-    fechado: 'Fechado',
-    cancelado: 'Cancelado'
-  };
-  return `<span class="badge b-status-${s}">${map[s] || s}</span>`;
+  return `<span class="badge b-status-${s}">${TICKET_STATUS_LABELS[s] || s}</span>`;
 }
 
 function badgePriority(p) {
-  const map = { baixa: 'Baixa', media: 'Média', alta: 'Alta', critica: 'Crítica' };
-  return `<span class="badge b-prioridade-${p}">${map[p] || p}</span>`;
+  return `<span class="badge b-prioridade-${p}">${TICKET_PRIORITY_LABELS[p] || p}</span>`;
 }
 
 function badgeActive(active) {
@@ -448,7 +616,7 @@ function badgeActive(active) {
 }
 
 function isCompletedStatus(status) {
-  return ['resolvido', 'fechado', 'cancelado'].includes(status);
+  return COMPLETED_TICKET_STATUSES.includes(status);
 }
 
 function normalizeText(value) {
@@ -509,6 +677,32 @@ function buildStatusWhatsAppMessage(ticket, status) {
     `Detalhes informados: ${description}`,
     '',
     closing
+  ].join('\n');
+}
+
+function buildStartServiceWhatsAppMessage(ticket, customMessage) {
+  const ticketNumber = ticket.numero_chamado || ticket.id;
+  const requesterName = ticket.usuario?.nome || 'Solicitante';
+  const storeName = ticket.loja?.nome || 'Loja não informada';
+  const checkoutName = ticket.caixa?.nome || 'Equipamento/Setor não informado';
+  const checkoutSector = ticket.caixa?.setor ? ` (${ticket.caixa.setor})` : '';
+  const typeName = ticket.tipo?.nome || 'Tipo não informado';
+  const title = ticket.titulo || 'Sem título';
+  const description = ticket.descricao || 'Sem detalhes adicionais.';
+
+  return [
+    `Olá, ${requesterName}!`,
+    '',
+    'Seu chamado entrou em atendimento.',
+    '',
+    `Número: ${ticketNumber}`,
+    `Loja: ${storeName}`,
+    `Equipamento/Setor: ${checkoutName}${checkoutSector}`,
+    `Tipo: ${typeName}`,
+    `Título: ${title}`,
+    `Detalhes informados: ${description}`,
+    '',
+    `Mensagem do atendimento: ${customMessage}`
   ].join('\n');
 }
 
@@ -850,6 +1044,7 @@ function mountMenu() {
 
 async function openCurrentView(viewId) {
   state.currentView = viewId;
+  persistCurrentView();
   if (!isDesktopNav()) setNavOpen(false);
   mountMenu();
   try {
@@ -861,13 +1056,7 @@ async function openCurrentView(viewId) {
 }
 
 async function fetchTickets(filters = {}) {
-  let query = sb.from('chamados').select(`
-    *,
-    loja:lojas(id,nome,codigo),
-    caixa:caixas(id,nome,setor),
-    tipo:tipos_chamado(id,nome),
-    usuario:usuarios(id,nome,email,telefone)
-  `).order('created_at', { ascending: false });
+  let query = sb.from('chamados').select(TICKET_SELECT_QUERY).order('created_at', { ascending: false });
 
   const data = await safeQuery(query);
   const rows = data || [];
@@ -902,7 +1091,7 @@ async function loadQueueMetrics() {
 }
 
 function getTicketRowsForView() {
-  const source = state.allTickets.length ? state.allTickets : state.tickets;
+  const source = getTicketSource();
   const ticketUi = state.adminUi.tickets;
   const isHistoryTab = ticketUi.tab === 'history';
 
@@ -919,7 +1108,7 @@ function getTicketRowsForView() {
 }
 
 function getOpenQueueTickets() {
-  const source = state.allTickets.length ? state.allTickets : state.tickets;
+  const source = getTicketSource();
   return source
     .filter(ticket => ticket.status === 'aberto')
     .slice()
@@ -944,6 +1133,214 @@ function renderQueueInfo(ticket) {
   const position = getTicketQueuePosition(ticket.id);
   if (!position) return ticket.status === 'aberto' ? 'Aguardando posição' : 'Fora da fila';
   return `${position}º na fila`;
+}
+
+async function deleteTicketById(ticketId, options = {}) {
+  const { closeDetails = false } = options;
+  const ticket = findTicketById(ticketId);
+  if (!ticket) {
+    showToast('Chamado não encontrado.', 'error');
+    return;
+  }
+
+  const confirmed = await showConfirmDialog({
+    title: 'Excluir chamado',
+    message: `Excluir o chamado ${ticket.numero_chamado || ticket.id}? Essa ação não poderá ser desfeita.`,
+    confirmText: 'Excluir',
+    confirmClass: 'btn btn-danger'
+  });
+  if (!confirmed) return;
+
+  const { error, count } = await sb
+    .from('chamados')
+    .delete({ count: 'exact' })
+    .eq('id', ticket.id);
+
+  if (error) {
+    showToast(error.message, 'error');
+    return;
+  }
+
+  if (!count) {
+    showToast('Nenhum chamado foi excluído. Verifique a permissão de exclusão no banco.', 'error');
+    return;
+  }
+
+  showToast('Chamado excluído com sucesso');
+
+  if (closeDetails && el.detailsModal.open) {
+    el.detailsModal.close();
+  }
+
+  await refreshCurrentView();
+}
+
+async function startTicketService(ticketId) {
+  if (!isAdmin()) return;
+
+  const ticket = findTicketById(ticketId);
+  if (!ticket) {
+    showToast('Chamado não encontrado.', 'error');
+    return;
+  }
+
+  if (ticket.status !== 'aberto') {
+    showToast('Só é possível iniciar atendimento de chamados abertos.', 'error');
+    return;
+  }
+
+  const ticketUserPhone = getTicketUserPhone(ticket);
+  if (!ticketUserPhone) {
+    showToast('O usuário deste chamado não possui telefone cadastrado.', 'error');
+    return;
+  }
+
+  const result = await openCustomDialog({
+    title: 'Iniciar atendimento',
+    message: `Informe a mensagem que será enviada no WhatsApp para o chamado ${ticket.numero_chamado || ticket.id}.`,
+    confirmText: 'Iniciar atendimento',
+    fields: [
+      {
+        name: 'mensagem',
+        label: 'Mensagem para WhatsApp',
+        type: 'textarea',
+        rows: 4,
+        required: true,
+        placeholder: 'Ex: Olá, iniciei o atendimento do seu chamado e já estou verificando o equipamento.'
+      }
+    ]
+  });
+  if (!result.confirmed) return;
+
+  const message = result.values.mensagem;
+  if (!message) {
+    showToast('Informe uma mensagem para enviar no WhatsApp.', 'error');
+    return;
+  }
+  const whatsappMessage = buildStartServiceWhatsAppMessage(ticket, message);
+
+  const updated = await safeQuery(
+    sb.from('chamados').update({ status: 'em_andamento' }).eq('id', ticket.id).select().single()
+  );
+  if (!updated) return;
+
+  await safeQuery(sb.rpc('add_ticket_observation', {
+    p_chamado_id: ticket.id,
+    p_texto: `Atendimento iniciado. Mensagem enviada no WhatsApp: ${message}`
+  }));
+
+  window.open(buildWhatsAppUrl(ticketUserPhone, whatsappMessage), '_blank', 'noopener');
+  showToast('Atendimento iniciado e WhatsApp preparado.');
+  await refreshCurrentView();
+}
+
+async function openTicketStatusDialog(ticketId) {
+  if (!isAdmin()) return;
+
+  const ticket = findTicketById(ticketId);
+  if (!ticket) {
+    showToast('Chamado não encontrado.', 'error');
+    return;
+  }
+
+  const result = await openCustomDialog({
+    title: `Alterar status do chamado ${ticket.numero_chamado || ticket.id}`,
+    message: ticket.titulo || 'Atualize o andamento e a prioridade do chamado.',
+    confirmText: 'Salvar alterações',
+    fields: [
+      {
+        name: 'status',
+        label: 'Status',
+        type: 'select',
+        value: ticket.status === 'fechado' ? 'resolvido' : (ticket.status || 'aberto'),
+        options: [
+          { value: 'aberto', label: 'Aberto' },
+          { value: 'em_andamento', label: 'Em andamento' },
+          { value: 'aguardando_retorno', label: 'Aguardando retorno' },
+          { value: 'resolvido', label: 'Resolvido' },
+          { value: 'cancelado', label: 'Cancelado' }
+        ]
+      },
+      {
+        name: 'prioridade',
+        label: 'Prioridade',
+        type: 'select',
+        value: ticket.prioridade || 'baixa',
+        options: [
+          { value: 'baixa', label: 'Baixa' },
+          { value: 'media', label: 'Média' },
+          { value: 'alta', label: 'Alta' },
+          { value: 'critica', label: 'Crítica' }
+        ]
+      }
+    ]
+  });
+
+  if (!result.confirmed) return;
+
+  const nextStatus = result.values.status;
+  const nextPriority = result.values.prioridade;
+  if (nextStatus === ticket.status && nextPriority === (ticket.prioridade || 'baixa')) {
+    showToast('Altere o status ou a prioridade antes de salvar.', 'error');
+    return;
+  }
+
+  let whatsappDecision = null;
+  let whatsappPhone = '';
+  let whatsappMessage = '';
+  const ticketUserPhone = getTicketUserPhone(ticket);
+
+  if ((nextStatus === 'resolvido' || nextStatus === 'aguardando_retorno') && nextStatus !== ticket.status) {
+    if (!ticketUserPhone) {
+      return showToast('O usuário deste chamado não possui telefone cadastrado.', 'error');
+    }
+
+    const confirmTitle = nextStatus === 'aguardando_retorno'
+      ? 'Enviar WhatsApp de retorno'
+      : 'Enviar WhatsApp';
+    const confirmMessage = nextStatus === 'aguardando_retorno'
+      ? `Usar o telefone cadastrado ${ticketUserPhone} para abrir o WhatsApp após salvar o chamado como aguardando retorno?`
+      : `Usar o telefone cadastrado ${ticketUserPhone} para abrir o WhatsApp após salvar o chamado como resolvido?`;
+
+    const sendWhatsApp = await showConfirmDialog({
+      title: confirmTitle,
+      message: confirmMessage,
+      confirmText: 'Sim, abrir WhatsApp',
+      confirmClass: 'btn btn-primary'
+    });
+
+    whatsappDecision = { values: { enviar_whatsapp: sendWhatsApp } };
+    if (sendWhatsApp) {
+      whatsappPhone = ticketUserPhone;
+      whatsappMessage = buildStatusWhatsAppMessage(ticket, nextStatus);
+    }
+  }
+
+  const confirmed = await confirmAction({
+    title: 'Atualizar chamado',
+    message: `Confirmar atualização do chamado ${ticket.numero_chamado || ticket.id}?`,
+    confirmText: 'Salvar alterações'
+  });
+  if (!confirmed) return;
+
+  const updated = await safeQuery(
+    sb.from('chamados').update({ status: nextStatus, prioridade: nextPriority }).eq('id', ticket.id).select().single()
+  );
+  if (!updated) return;
+
+  if (whatsappDecision?.values?.enviar_whatsapp) {
+    const notificationLogged = await logWhatsAppNotification(ticket, whatsappPhone, whatsappMessage, nextStatus);
+    if (notificationLogged) {
+      window.open(buildWhatsAppUrl(whatsappPhone, whatsappMessage), '_blank', 'noopener');
+      showToast('Chamado atualizado e WhatsApp preparado.');
+    } else {
+      showToast('Chamado atualizado, mas o registro do WhatsApp falhou.', 'error');
+    }
+  } else {
+    showToast('Chamado atualizado');
+  }
+
+  await refreshCurrentView();
 }
 
 function renderDashboard() {
@@ -1049,7 +1446,33 @@ function renderDashboard() {
             </div>
           </div>
           <div class="recent-list">
-            ${recent.length ? recent.map(r => `
+            ${recent.length ? recent.map(r => isAdmin() ? `
+              <article class="entity-card entity-card-ticket">
+                <header class="entity-card-head">
+                  <div>
+                    <small class="entity-card-kicker">Chamado #${r.numero_chamado || r.id}</small>
+                    <h4>${r.titulo}</h4>
+                    <p>${r.loja?.nome || '-'} • ${r.caixa?.nome || '-'} • ${r.tipo?.nome || '-'}</p>
+                  </div>
+                  <div class="entity-card-badges">
+                    ${badgeStatus(r.status)}
+                    ${badgePriority(r.prioridade)}
+                  </div>
+                </header>
+                <div class="entity-card-content">
+                  ${renderInfoGrid([
+                    ['Solicitante', r.usuario?.nome || '-'],
+                    ['Abertura', fmtDate(r.created_at)]
+                  ])}
+                </div>
+                <footer class="entity-card-actions">
+                  <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
+                  ${r.status === 'aberto' ? `<button class="btn btn-sm ticket-start-action" data-action="start-service" data-id="${r.id}">Iniciar atendimento</button>` : ''}
+                  <button class="btn btn-sm btn-primary" data-action="status" data-id="${r.id}">Alterar status</button>
+                  <button class="btn btn-sm btn-ghost ticket-delete-action" data-action="delete" data-id="${r.id}">Excluir</button>
+                </footer>
+              </article>
+            ` : `
               <button type="button" class="recent-ticket" data-action="open" data-id="${r.id}">
                 <div class="recent-head">
                   <strong>${r.titulo}</strong>
@@ -1204,6 +1627,9 @@ function ticketTable(rows) {
         </div>
         <footer class="entity-card-actions">
           <button class="btn btn-sm btn-ghost" data-action="open" data-id="${r.id}">Detalhes</button>
+          ${isAdmin() && r.status === 'aberto' ? `<button class="btn btn-sm ticket-start-action" data-action="start-service" data-id="${r.id}">Iniciar atendimento</button>` : ''}
+          ${isAdmin() ? `<button class="btn btn-sm btn-primary" data-action="status" data-id="${r.id}">Alterar status</button>` : ''}
+          ${isAdmin() ? `<button class="btn btn-sm btn-ghost ticket-delete-action" data-action="delete" data-id="${r.id}">Excluir</button>` : ''}
         </footer>
       </article>
     `
@@ -1263,6 +1689,59 @@ function renderEntityCard({
   `;
 }
 
+function renderTicketSummaryCards(rows, isHistoryTab) {
+  const summaryItems = isHistoryTab
+    ? [
+        ['Total no histórico', rows.length, 'kpi-total'],
+        ['Resolvidos', rows.filter(row => row.status === 'resolvido').length, 'kpi-done'],
+        ['Cancelados', rows.filter(row => row.status === 'cancelado').length, 'kpi-open']
+      ]
+    : [
+        ['Total visível', rows.length, 'kpi-total'],
+        ['Abertos', rows.filter(row => row.status === 'aberto').length, 'kpi-open'],
+        ['Em andamento', rows.filter(row => row.status === 'em_andamento').length, 'kpi-progress'],
+        ['Aguardando retorno', rows.filter(row => row.status === 'aguardando_retorno').length, 'kpi-done']
+      ];
+
+  return `
+    <section class="cards-grid ticket-summary-grid">
+      ${summaryItems.map(([label, value, css]) => `
+        <article class="kpi ticket-summary-card ${css}">
+          <span class="kpi-dot"></span>
+          <strong>${value}</strong>
+          <span>${label}</span>
+        </article>
+      `).join('')}
+    </section>
+  `;
+}
+
+function exportTicketRowsCsv(rows, fileLabel = 'chamados_filtrados') {
+  const header = [
+    'numero_chamado', 'loja', 'caixa', 'tipo', 'titulo', 'prioridade', 'status', 'abertura', 'solicitante'
+  ];
+
+  const lines = rows.map(t => [
+    t.numero_chamado || t.id,
+    t.loja?.nome || '',
+    t.caixa?.nome || '',
+    t.tipo?.nome || '',
+    t.titulo,
+    t.prioridade,
+    t.status,
+    fmtDate(t.created_at),
+    t.usuario?.nome || ''
+  ].map(v => `"${String(v).replaceAll('"', '""')}"`).join(','));
+
+  const csv = [header.join(','), ...lines].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${fileLabel}_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 function renderTicketView() {
   const ticketUi = state.adminUi.tickets;
   const isHistoryTab = ticketUi.tab === 'history';
@@ -1270,19 +1749,11 @@ function renderTicketView() {
   const checkoutNames = [...new Set(state.lookups.checkouts.map(c => c.nome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const checkouts = ['<option value="">Todos os equipamentos/setor</option>'].concat(checkoutNames.map(name => `<option value="${name}">${name}</option>`)).join('');
   const types = ['<option value="">Todos os tipos</option>'].concat(state.lookups.types.map(t => `<option value="${t.id}">${t.nome}</option>`)).join('');
-  const statusOptions = isHistoryTab
-    ? `
-      <option value="">Todos os status do histórico</option>
-      <option value="resolvido" ${ticketUi.filters.status === 'resolvido' ? 'selected' : ''}>Resolvido</option>
-      <option value="fechado" ${ticketUi.filters.status === 'fechado' ? 'selected' : ''}>Fechado</option>
-      <option value="cancelado" ${ticketUi.filters.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
-    `
-    : `
-      <option value="">Todos os status ativos</option>
-      <option value="aberto" ${ticketUi.filters.status === 'aberto' ? 'selected' : ''}>Aberto</option>
-      <option value="em_andamento" ${ticketUi.filters.status === 'em_andamento' ? 'selected' : ''}>Em andamento</option>
-      <option value="aguardando_retorno" ${ticketUi.filters.status === 'aguardando_retorno' ? 'selected' : ''}>Aguardando retorno</option>
-    `;
+  const statusOptions = [
+    `<option value="">${isHistoryTab ? 'Todos os status do histórico' : 'Todos os status ativos'}</option>`,
+    ...(isHistoryTab ? HISTORY_TICKET_FILTER_OPTIONS : ACTIVE_TICKET_FILTER_OPTIONS)
+      .map(option => `<option value="${option.value}" ${ticketUi.filters.status === option.value ? 'selected' : ''}>${option.label}</option>`)
+  ].join('');
   const visibleRows = getTicketRowsForView();
 
   el.content.innerHTML = `
@@ -1292,6 +1763,7 @@ function renderTicketView() {
           <h3>Chamados</h3>
           <p>${isHistoryTab ? 'Registro de chamados concluídos.' : 'Acompanhe apenas chamados ativos e em progresso.'}</p>
         </div>
+        <button id="btn-export-visible-tickets" class="btn btn-primary btn-sm" type="button">Exportar filtrados</button>
       </div>
       <div class="ticket-tabs">
         <button class="ticket-tab ${!isHistoryTab ? 'active' : ''}" id="btn-tab-active" type="button">Chamados em aberto</button>
@@ -1334,6 +1806,7 @@ function renderTicketView() {
         </div>
       `)}
     </article>
+    ${renderTicketSummaryCards(visibleRows, isHistoryTab)}
     <article class="card table-wrap">
       ${ticketTable(visibleRows)}
     </article>
@@ -1344,6 +1817,13 @@ function renderTicketView() {
   document.getElementById('f-store').value = ticketUi.filters.store;
   document.getElementById('f-checkout').value = ticketUi.filters.checkout;
   document.getElementById('f-type').value = ticketUi.filters.type;
+  document.getElementById('btn-export-visible-tickets').addEventListener('click', () => {
+    if (!visibleRows.length) {
+      showToast('Nenhum chamado para exportar.', 'error');
+      return;
+    }
+    exportTicketRowsCsv(visibleRows, isHistoryTab ? 'historico_filtrado' : 'chamados_filtrados');
+  });
 
   document.getElementById('btn-tab-active').addEventListener('click', () => {
     state.adminUi.tickets.tab = 'active';
@@ -1354,6 +1834,7 @@ function renderTicketView() {
       status: '',
       priority: ''
     };
+    persistTicketUiState();
     renderTicketView();
   });
 
@@ -1366,6 +1847,7 @@ function renderTicketView() {
       status: '',
       priority: ''
     };
+    persistTicketUiState();
     renderTicketView();
   });
 
@@ -1377,6 +1859,7 @@ function renderTicketView() {
       status: document.getElementById('f-status').value,
       priority: document.getElementById('f-priority').value
     };
+    persistTicketUiState();
     renderTicketView();
   });
 
@@ -1388,6 +1871,7 @@ function renderTicketView() {
       status: '',
       priority: ''
     };
+    persistTicketUiState();
     renderTicketView();
   });
 
@@ -1423,7 +1907,8 @@ function adminEntityView(title, id, rows, columns, actions) {
             .map(c => [c.label, typeof c.render === 'function' ? c.render(row) : (row[c.key] ?? '-')]),
           actions: `
             <button class="btn btn-sm btn-ghost" data-entity="${id}" data-action="edit" data-id="${row.id}">Editar</button>
-            <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">Excluir/Inativar</button>
+            ${actions.remove ? `<button class="btn btn-sm ${row.ativo ? 'btn-warning' : 'btn-primary'}" data-entity="${id}" data-action="toggle" data-id="${row.id}">${row.ativo ? 'Inativar' : 'Ativar'}</button>` : ''}
+            <button class="btn btn-sm btn-danger" data-entity="${id}" data-action="delete" data-id="${row.id}">${actions.delete ? 'Excluir' : 'Excluir/Inativar'}</button>
           `
         }),
         className: 'entity-grid-admin'
@@ -1436,7 +1921,8 @@ function adminEntityView(title, id, rows, columns, actions) {
     btn.addEventListener('click', () => {
       const row = rows.find(r => String(r.id) === String(btn.dataset.id));
       if (btn.dataset.action === 'edit') actions.edit(row);
-      if (btn.dataset.action === 'delete') actions.remove(row);
+      if (btn.dataset.action === 'toggle' && actions.remove) actions.remove(row);
+      if (btn.dataset.action === 'delete') (actions.delete || actions.remove)(row);
     });
   });
 }
@@ -1613,8 +2099,7 @@ function renderStores() {
     }
 
     state.adminUi.stores.editingId = null;
-    await reloadAll();
-    renderStores();
+    await refreshCurrentView();
   });
 
   el.content.querySelectorAll('button[data-store-action]').forEach(btn => {
@@ -1641,8 +2126,7 @@ function renderStores() {
         );
         if (!updated) return;
         showToast(`Loja ${updated.ativo ? 'ativada' : 'inativada'} com sucesso.`);
-        await reloadAll();
-        renderStores();
+        await refreshCurrentView();
         return;
       }
 
@@ -1657,8 +2141,7 @@ function renderStores() {
       if (!deleted) return;
       showToast('Loja excluída com sucesso.');
       state.adminUi.stores.editingId = null;
-      await reloadAll();
-      renderStores();
+      await refreshCurrentView();
     });
   });
 }
@@ -1751,8 +2234,40 @@ function renderCheckouts() {
       const updated = await safeQuery(sb.from('caixas').update({ ativo: !row.ativo }).in('id', relatedIds).select());
       if (!updated) return;
       showToast(`Status aplicado ao equipamento/setor em ${updated.length} loja(s).`);
-      await reloadAll();
-      renderCheckouts();
+      await refreshCurrentView();
+    },
+    delete: async (row) => {
+      const confirmed = await showConfirmDialog({
+        title: 'Excluir equipamento/setor',
+        message: `Excluir ${row.nome} de todas as lojas? Essa ação pode falhar se houver chamados vinculados.`,
+        confirmText: 'Excluir',
+        confirmClass: 'btn btn-danger'
+      });
+      if (!confirmed) return;
+      const key = checkoutKey(row.nome, row.setor);
+      const relatedIds = state.lookups.checkouts
+        .filter(c => checkoutKey(c.nome, c.setor) === key)
+        .map(c => c.id);
+
+      const { count: linkedTicketsCount, error: linkedTicketsError } = await sb
+        .from('chamados')
+        .select('id', { count: 'exact', head: true })
+        .in('caixa_id', relatedIds);
+
+      if (linkedTicketsError) {
+        showToast(linkedTicketsError.message, 'error');
+        return;
+      }
+
+      if ((linkedTicketsCount || 0) > 0) {
+        showToast(`Não é possível excluir. Existem ${linkedTicketsCount} chamado(s) vinculado(s) a esse equipamento/setor. Use Inativar.`, 'error');
+        return;
+      }
+
+      const deleted = await safeQuery(sb.from('caixas').delete().in('id', relatedIds).select());
+      if (!deleted) return;
+      showToast(`Equipamento/setor excluído em ${deleted.length} loja(s).`);
+      await refreshCurrentView();
     }
   });
 }
@@ -1926,8 +2441,7 @@ function renderTypes() {
     }
 
     state.adminUi.types.editingId = null;
-    await reloadAll();
-    renderTypes();
+    await refreshCurrentView();
   });
 
   el.content.querySelectorAll('button[data-type-action]').forEach(btn => {
@@ -1954,8 +2468,7 @@ function renderTypes() {
         );
         if (!updated) return;
         showToast(`Tipo ${updated.ativo ? 'ativado' : 'inativado'} com sucesso.`);
-        await reloadAll();
-        renderTypes();
+        await refreshCurrentView();
         return;
       }
 
@@ -1970,8 +2483,7 @@ function renderTypes() {
       if (!deleted) return;
       showToast('Tipo excluído com sucesso.');
       state.adminUi.types.editingId = null;
-      await reloadAll();
-      renderTypes();
+      await refreshCurrentView();
     });
   });
 }
@@ -2054,8 +2566,7 @@ function renderUsers() {
 
       if (error) return showToast(error.message, 'error');
       showToast('Usuário criado. Se confirmação de email estiver ativa, ele precisa confirmar acesso.');
-      await reloadAll();
-      renderUsers();
+      await refreshCurrentView();
     },
     edit: async (row) => {
       const result = await openCustomDialog({
@@ -2118,8 +2629,7 @@ function renderUsers() {
           ativo
         }).eq('id', row.id)
       );
-      await reloadAll();
-      renderUsers();
+      await refreshCurrentView();
     },
     remove: async (row) => {
       const confirmed = await showConfirmDialog({
@@ -2130,8 +2640,7 @@ function renderUsers() {
       });
       if (!confirmed) return;
       await safeQuery(sb.from('usuarios').update({ ativo: !row.ativo }).eq('id', row.id));
-      await reloadAll();
-      renderUsers();
+      await refreshCurrentView();
     }
   });
 }
@@ -2236,15 +2745,18 @@ function renderSettings() {
 
 async function renderView() {
   el.viewTitle.textContent = state.menu.find(m => m.id === state.currentView)?.label || 'Painel';
-
-  if (state.currentView === 'dashboard') return renderDashboard();
-  if (state.currentView === 'tickets') return renderTicketView();
-  if (state.currentView === 'stores') return renderStores();
-  if (state.currentView === 'checkouts') return renderCheckouts();
-  if (state.currentView === 'types') return renderTypes();
-  if (state.currentView === 'users') return renderUsers();
-  if (state.currentView === 'reports') return renderReports();
-  if (state.currentView === 'settings') return renderSettings();
+  const viewRenderers = {
+    dashboard: renderDashboard,
+    tickets: renderTicketView,
+    stores: renderStores,
+    checkouts: renderCheckouts,
+    types: renderTypes,
+    users: renderUsers,
+    reports: renderReports,
+    settings: renderSettings
+  };
+  const renderCurrent = viewRenderers[state.currentView] || renderDashboard;
+  return renderCurrent();
 }
 
 function bindTicketRowActions() {
@@ -2260,23 +2772,47 @@ function bindTicketRowActions() {
     await openTicketDetails(ticketId);
   });
 
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('button[data-action="status"]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isAdmin()) return;
+    const ticketId = Number(btn.dataset.id);
+    if (!ticketId) return;
+    await openTicketStatusDialog(ticketId);
+  });
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('button[data-action="start-service"]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isAdmin()) return;
+    const ticketId = Number(btn.dataset.id);
+    if (!ticketId) return;
+    await startTicketService(ticketId);
+  });
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('button[data-action="delete"]');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isAdmin()) return;
+    const ticketId = Number(btn.dataset.id);
+    if (!ticketId) return;
+    await deleteTicketById(ticketId);
+  });
+
   document.body.dataset.ticketActionsBound = 'true';
 }
 
 async function openTicketDetails(ticketId) {
-  const source = state.allTickets.length ? state.allTickets : state.tickets;
-  let ticket = source.find(t => String(t.id) === String(ticketId));
+  let ticket = findTicketById(ticketId);
 
   if (!ticket) {
-    ticket = await safeQuery(
-      sb.from('chamados').select(`
-        *,
-        loja:lojas(id,nome,codigo),
-        caixa:caixas(id,nome,setor),
-        tipo:tipos_chamado(id,nome),
-        usuario:usuarios(id,nome,email,telefone)
-      `).eq('id', ticketId).maybeSingle()
-    );
+    ticket = await fetchTicketById(ticketId);
   }
 
   if (!ticket) {
@@ -2293,33 +2829,6 @@ async function openTicketDetails(ticketId) {
       .order('created_at', { ascending: false })
   ) || [];
 
-  const statusActions = isAdmin()
-    ? `<div class="ticket-progress-panel">
-        <h3>Progresso do chamado</h3>
-        <p>Apenas administradores podem atualizar o andamento e definir a prioridade. Quando o chamado for concluído, ele aparecerá na aba Histórico.</p>
-        <div class="toolbar">
-        <select id="ticket-status-update">
-          <option value="aberto">Aberto</option>
-          <option value="em_andamento">Em andamento</option>
-          <option value="aguardando_retorno">Aguardando retorno</option>
-          <option value="resolvido">Resolvido</option>
-          <option value="fechado">Fechado</option>
-          <option value="cancelado">Cancelado</option>
-        </select>
-        <select id="ticket-priority-update">
-          <option value="baixa">Baixa</option>
-          <option value="media">Média</option>
-          <option value="alta">Alta</option>
-          <option value="critica">Crítica</option>
-        </select>
-        <button class="btn btn-primary btn-sm" id="btn-change-status" data-id="${ticket.id}">Alterar status</button>
-        </div>
-        <div class="admin-form-actions">
-          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-ticket" data-id="${ticket.id}">Excluir chamado</button>
-        </div>
-      </div>`
-    : '';
-
   el.detailsContent.innerHTML = `
     <div class="details-header">
       <div>
@@ -2334,7 +2843,6 @@ async function openTicketDetails(ticketId) {
 
     <div class="details-tabs">
       <button class="details-tab active" type="button" data-details-tab="info">Informações</button>
-      <button class="details-tab" type="button" data-details-tab="status">Alterar status</button>
       <button class="details-tab" type="button" data-details-tab="history">Histórico</button>
     </div>
 
@@ -2358,15 +2866,6 @@ async function openTicketDetails(ticketId) {
       </div>
     </section>
 
-    <section class="details-panel" data-details-panel="status">
-      ${statusActions || '<div class="card"><p>Somente administradores podem alterar o status deste chamado.</p></div>'}
-      <div class="card">
-        <h3>Adicionar observação</h3>
-        <textarea id="obs-text" rows="3" placeholder="Digite uma observação"></textarea>
-        <button id="btn-add-observation" class="btn btn-primary btn-sm" data-id="${ticket.id}">Registrar observação</button>
-      </div>
-    </section>
-
     <section class="details-panel" data-details-panel="history">
       <div class="card">
         <h3>Histórico</h3>
@@ -2380,7 +2879,7 @@ async function openTicketDetails(ticketId) {
       </div>
     </section>
     <footer class="modal-footer">
-      <button type="button" class="btn btn-ghost" id="btn-close-details">Fechar</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-close-details">Fechar</button>
     </footer>
   `;
 
@@ -2394,118 +2893,6 @@ async function openTicketDetails(ticketId) {
         node.classList.toggle('active', node.dataset.detailsPanel === nextTab);
       });
     });
-  });
-
-  if (isAdmin()) {
-    const statusSelect = document.getElementById('ticket-status-update');
-    const prioritySelect = document.getElementById('ticket-priority-update');
-    statusSelect.value = ticket.status;
-    prioritySelect.value = ticket.prioridade || 'baixa';
-    document.getElementById('btn-change-status').addEventListener('click', async () => {
-      const nextStatus = statusSelect.value;
-      const nextPriority = prioritySelect.value;
-      if (nextStatus === ticket.status && nextPriority === (ticket.prioridade || 'baixa')) {
-        showToast('Altere o status ou a prioridade antes de salvar.', 'error');
-        return;
-      }
-      let whatsappDecision = null;
-      let whatsappPhone = '';
-      let whatsappMessage = '';
-      if ((nextStatus === 'resolvido' || nextStatus === 'aguardando_retorno') && nextStatus !== ticket.status) {
-        const registeredPhone = ticketUserPhone;
-        if (!registeredPhone) {
-          return showToast('O usuário deste chamado não possui telefone cadastrado.', 'error');
-        }
-
-        const confirmTitle = nextStatus === 'aguardando_retorno'
-          ? 'Enviar WhatsApp de retorno'
-          : 'Enviar WhatsApp';
-        const confirmMessage = nextStatus === 'aguardando_retorno'
-          ? `Usar o telefone cadastrado ${registeredPhone} para abrir o WhatsApp após salvar o chamado como aguardando retorno?`
-          : `Usar o telefone cadastrado ${registeredPhone} para abrir o WhatsApp após salvar o chamado como resolvido?`;
-
-        const sendWhatsApp = await showConfirmDialog({
-          title: confirmTitle,
-          message: confirmMessage,
-          confirmText: 'Sim, abrir WhatsApp',
-          confirmClass: 'btn btn-primary'
-        });
-
-        whatsappDecision = { values: { enviar_whatsapp: sendWhatsApp } };
-        if (sendWhatsApp) {
-          whatsappPhone = registeredPhone;
-          whatsappMessage = buildStatusWhatsAppMessage(ticket, nextStatus);
-        }
-      }
-      const confirmed = await confirmAction({
-        title: 'Atualizar chamado',
-        message: `Confirmar atualização do chamado ${ticket.numero_chamado || ticket.id}?`,
-        confirmText: 'Salvar alterações'
-      });
-      if (!confirmed) return;
-      const updated = await safeQuery(
-        sb.from('chamados').update({ status: nextStatus, prioridade: nextPriority }).eq('id', ticket.id).select().single()
-      );
-      if (!updated) return;
-      if (whatsappDecision?.values?.enviar_whatsapp) {
-        const notificationLogged = await logWhatsAppNotification(ticket, whatsappPhone, whatsappMessage, nextStatus);
-        if (notificationLogged) {
-          window.open(buildWhatsAppUrl(whatsappPhone, whatsappMessage), '_blank', 'noopener');
-          showToast('Chamado atualizado e WhatsApp preparado.');
-        } else {
-          showToast('Chamado atualizado, mas o registro do WhatsApp falhou.', 'error');
-        }
-      } else {
-        showToast('Chamado atualizado');
-      }
-      if (el.detailsModal.open) {
-        el.detailsModal.close();
-      }
-      await reloadAll();
-      await renderView();
-    });
-
-    document.getElementById('btn-delete-ticket').addEventListener('click', async () => {
-      const confirmed = await showConfirmDialog({
-        title: 'Excluir chamado',
-        message: `Excluir o chamado ${ticket.numero_chamado || ticket.id}? Essa ação não poderá ser desfeita.`,
-        confirmText: 'Excluir',
-        confirmClass: 'btn btn-danger'
-      });
-      if (!confirmed) return;
-      const { error, count } = await sb
-        .from('chamados')
-        .delete({ count: 'exact' })
-        .eq('id', ticket.id);
-      if (error) {
-        showToast(error.message, 'error');
-        return;
-      }
-      if (!count) {
-        showToast('Nenhum chamado foi excluído. Verifique a permissão de exclusão no banco.', 'error');
-        return;
-      }
-      showToast('Chamado excluído com sucesso');
-      if (el.detailsModal.open) {
-        el.detailsModal.close();
-      }
-      await reloadAll();
-      await renderView();
-    });
-  }
-
-  document.getElementById('btn-add-observation').addEventListener('click', async () => {
-    const text = document.getElementById('obs-text').value.trim();
-    if (!text) return showToast('Digite a observação', 'error');
-    const confirmed = await confirmAction({
-      title: 'Registrar observação',
-      message: `Confirmar registro desta observação no chamado ${ticket.numero_chamado || ticket.id}?`,
-      confirmText: 'Registrar observação'
-    });
-    if (!confirmed) return;
-    await safeQuery(sb.rpc('add_ticket_observation', { p_chamado_id: ticket.id, p_texto: text }));
-    showToast('Observação registrada');
-    await openTicketDetails(ticket.id);
   });
 
   document.getElementById('btn-close-details').addEventListener('click', () => {
@@ -2637,7 +3024,6 @@ function exportCsv() {
 async function bootApp(session) {
   state.session = session;
   await ensureProfile(session.user);
-  state.currentView = 'dashboard';
   syncMenuState();
   state.isSigningOut = false;
   if (el.btnLogout) {
@@ -2659,8 +3045,14 @@ async function bootApp(session) {
     el.btnOpenTicket.classList.toggle('hidden', isAdmin());
   }
 
+  const allowedViews = new Set((isAdmin() ? MENU_ADMIN : MENU_FUNC).map(item => item.id));
+  if (!allowedViews.has(state.currentView)) {
+    state.currentView = 'dashboard';
+  }
+
   await reloadAll();
   mountMenu();
+  persistCurrentView();
   await renderView();
 }
 
@@ -2772,6 +3164,7 @@ function bindTopActions() {
   if (el.btnThemeToggle) {
     el.btnThemeToggle.addEventListener('click', () => {
       document.body.classList.toggle('theme-light');
+      writeUiPrefs({ theme: document.body.classList.contains('theme-light') ? 'light' : 'dark' });
     });
   }
 
@@ -2780,22 +3173,50 @@ function bindTopActions() {
 
   el.globalSearch.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
-    const number = el.globalSearch.value.trim();
-    if (!number) return;
+    const query = normalizeText(el.globalSearch.value);
+    if (!query) return;
+
+    const source = state.allTickets.length ? state.allTickets : state.tickets;
+    const localMatches = source.filter(ticket => {
+      const haystack = [
+        ticket.numero_chamado,
+        ticket.titulo,
+        ticket.loja?.nome,
+        ticket.caixa?.nome,
+        ticket.tipo?.nome,
+        ticket.usuario?.nome
+      ].map(normalizeText).join(' ');
+      return haystack.includes(query);
+    });
+
+    if (localMatches.length === 1) {
+      await openTicketDetails(localMatches[0].id);
+      return;
+    }
 
     const data = await safeQuery(
-      sb.from('chamados').select(`
-        *,
-        loja:lojas(id,nome,codigo),
-        caixa:caixas(id,nome,setor),
-        tipo:tipos_chamado(id,nome),
-        usuario:usuarios(id,nome,email,telefone)
-      `).ilike('numero_chamado', `%${number}%`).limit(1)
+      sb.from('chamados').select(TICKET_SELECT_QUERY).or(`numero_chamado.ilike.%${query}%,titulo.ilike.%${query}%`).limit(5)
     );
 
     if (!data || !data.length) return showToast('Chamado não encontrado', 'error');
     await fetchTickets();
-    await openTicketDetails(data[0].id);
+
+    if (data.length === 1) {
+      await openTicketDetails(data[0].id);
+      return;
+    }
+
+    state.adminUi.tickets.tab = 'active';
+    state.adminUi.tickets.filters = {
+      store: '',
+      checkout: '',
+      type: '',
+      status: '',
+      priority: ''
+    };
+    persistTicketUiState();
+    await openCurrentView('tickets');
+    showToast(`${data.length} chamados encontrados. Abra pelos detalhes.`);
   });
 
   if (el.detailsModal) {
@@ -2811,6 +3232,7 @@ function bindTopActions() {
 async function init() {
   if (!window.sb) return;
 
+  restoreUiPrefs();
   bootAuth();
   bindTopActions();
   initLogoutButton();
