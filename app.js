@@ -138,6 +138,7 @@ const customDialogState = {
   fields: [],
   result: { confirmed: false, values: {} }
 };
+const adminEntityActionRegistry = new Map();
 
 let toastTimer = null;
 
@@ -402,7 +403,20 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function buildDialogField(field) {
+function delegateEvent(root, type, selector, handler, options) {
+  if (!root) return () => {};
+
+  const listener = event => {
+    const matchedTarget = event.target instanceof Element ? event.target.closest(selector) : null;
+    if (!matchedTarget || !root.contains(matchedTarget)) return;
+    handler(event, matchedTarget);
+  };
+
+  root.addEventListener(type, listener, options);
+  return () => root.removeEventListener(type, listener, options);
+}
+
+function buildDialogFieldMarkup(field) {
   const label = escapeHtml(field.label || '');
   const name = escapeHtml(field.name);
   const value = field.value ?? '';
@@ -459,6 +473,26 @@ function buildDialogField(field) {
   `;
 }
 
+function buildDialogField(field) {
+  const template = document.createElement('template');
+  template.innerHTML = buildDialogFieldMarkup(field).trim();
+  return template.content.firstElementChild;
+}
+
+function renderCustomDialogFields(fields) {
+  if (!el.customDialogFields) return;
+
+  const fragment = document.createDocumentFragment();
+  fields.forEach(field => {
+    const node = buildDialogField(field);
+    if (node) {
+      fragment.appendChild(node);
+    }
+  });
+
+  el.customDialogFields.replaceChildren(fragment);
+}
+
 function closeCustomDialog(result = { confirmed: false, values: {} }) {
   customDialogState.result = result;
   if (el.customDialog) {
@@ -475,11 +509,12 @@ function resetCustomDialogUi() {
     el.customDialogMessage.textContent = '';
     el.customDialogMessage.classList.add('hidden');
   }
-  if (el.customDialogFields) el.customDialogFields.innerHTML = '';
+  renderCustomDialogFields([]);
   if (el.customDialogCancel) {
     el.customDialogCancel.textContent = 'Cancelar';
     el.customDialogCancel.className = 'btn btn-ghost btn-sm';
     el.customDialogCancel.classList.remove('hidden');
+    el.customDialogCancel.dataset.dialogAction = 'cancel';
   }
   if (el.customDialogConfirm) {
     el.customDialogConfirm.textContent = 'Confirmar';
@@ -518,9 +553,10 @@ function openCustomDialog({
   el.customDialogTitle.textContent = title;
   el.customDialogMessage.textContent = message;
   el.customDialogMessage.classList.toggle('hidden', !message);
-  el.customDialogFields.innerHTML = fields.map(buildDialogField).join('');
+  renderCustomDialogFields(fields);
   el.customDialogCancel.textContent = cancelText;
   el.customDialogCancel.classList.toggle('hidden', !showCancel);
+  el.customDialogCancel.dataset.dialogAction = 'cancel';
   el.customDialogConfirm.textContent = confirmText;
   el.customDialogConfirm.className = confirmClass;
 
@@ -597,6 +633,10 @@ async function confirmAction({
 function initCustomDialog() {
   if (!el.customDialog || !el.customDialogForm) return;
 
+  if (el.customDialogCancel) {
+    el.customDialogCancel.dataset.dialogAction = 'cancel';
+  }
+
   el.customDialogForm.addEventListener('submit', event => {
     event.preventDefault();
     closeCustomDialog({
@@ -605,7 +645,8 @@ function initCustomDialog() {
     });
   });
 
-  el.customDialogCancel.addEventListener('click', () => {
+  delegateEvent(el.customDialog, 'click', '[data-dialog-action="cancel"]', event => {
+    event.preventDefault();
     closeCustomDialog({ confirmed: false, values: {} });
   });
 
@@ -2088,6 +2129,8 @@ function renderTicketView() {
 }
 
 function adminEntityView(title, id, rows, columns, actions) {
+  adminEntityActionRegistry.set(id, { rows, actions });
+
   el.content.innerHTML = `
     <article class="card entity-view entity-view-${id}">
       <div class="card-title-row">
@@ -2095,7 +2138,7 @@ function adminEntityView(title, id, rows, columns, actions) {
           <h3>${title}</h3>
           <p>Gerencie os registros em cards verticais com ações rápidas no final de cada item.</p>
         </div>
-        <button class="btn btn-primary btn-sm" id="btn-create-${id}">Novo</button>
+        <button class="btn btn-primary btn-sm" data-create-entity="${id}">Novo</button>
       </div>
     </article>
     <article class="card entity-view entity-view-${id}">
@@ -2124,16 +2167,6 @@ function adminEntityView(title, id, rows, columns, actions) {
       })}
     </article>
   `;
-
-  document.getElementById(`btn-create-${id}`).addEventListener('click', actions.create);
-  el.content.querySelectorAll(`button[data-entity="${id}"]`).forEach(btn => {
-    btn.addEventListener('click', () => {
-      const row = rows.find(r => String(r.id) === String(btn.dataset.id));
-      if (btn.dataset.action === 'edit') actions.edit(row);
-      if (btn.dataset.action === 'toggle' && actions.remove) actions.remove(row);
-      if (btn.dataset.action === 'delete') (actions.delete || actions.remove)(row);
-    });
-  });
 }
 
 function renderStores() {
@@ -3042,6 +3075,49 @@ function bindTicketRowActions() {
   document.body.dataset.ticketActionsBound = 'true';
 }
 
+function initAdminEntityDelegation() {
+  if (!el.content || el.content.dataset.adminEntityDelegationBound === 'true') return;
+
+  delegateEvent(el.content, 'click', 'button[data-create-entity]', async (event, button) => {
+    const entityId = button.dataset.createEntity;
+    const config = adminEntityActionRegistry.get(entityId);
+    if (!config?.actions?.create) return;
+    event.preventDefault();
+    await config.actions.create();
+  });
+
+  delegateEvent(el.content, 'click', 'button[data-entity][data-action]', async (event, button) => {
+    const entityId = button.dataset.entity;
+    const actionName = button.dataset.action;
+    const config = adminEntityActionRegistry.get(entityId);
+    if (!config) return;
+
+    const row = config.rows.find(item => String(item.id) === String(button.dataset.id));
+    if (!row) return;
+
+    event.preventDefault();
+
+    if (actionName === 'edit' && config.actions.edit) {
+      await config.actions.edit(row);
+      return;
+    }
+
+    if (actionName === 'toggle' && config.actions.remove) {
+      await config.actions.remove(row);
+      return;
+    }
+
+    if (actionName === 'delete') {
+      const handler = config.actions.delete || config.actions.remove;
+      if (handler) {
+        await handler(row);
+      }
+    }
+  });
+
+  el.content.dataset.adminEntityDelegationBound = 'true';
+}
+
 async function openTicketDetails(ticketId) {
   let ticket = findTicketById(ticketId);
 
@@ -3508,6 +3584,7 @@ async function init() {
   bindTopActions();
   initLogoutButton();
   initCustomDialog();
+  initAdminEntityDelegation();
   setupTicketModal();
 
   syncMenuState();
